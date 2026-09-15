@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checkout — VNP &lt;&gt; AIRWALLEX</title>
+    <link rel="stylesheet" href="checkout.css">
+</head>
+<body>
+    <div class="checkout-shell">
+        <header class="checkout-header">
+            <img src="/assets/logo.svg" alt="VNP" class="checkout-logo">
+            <a class="checkout-back" href="/payments">Cancel and go back</a>
+        </header>
+
+        <main class="checkout-main">
+            <section class="checkout-summary" id="summary" hidden>
+                <p class="summary-label">Amount due</p>
+                <p class="summary-amount" id="summary-amount">—</p>
+                <p class="summary-description" id="summary-description"></p>
+                <dl class="summary-meta">
+                    <div><dt>Order</dt><dd id="summary-order">—</dd></div>
+                    <div><dt>Statement descriptor</dt><dd id="summary-descriptor" class="mono">—</dd></div>
+                </dl>
+                <p class="summary-note">Payments are processed by Airwallex. Card details are entered directly into their secure element and never touch our servers.</p>
+            </section>
+
+            <section class="checkout-pane">
+                <div class="checkout-status" id="status">
+                    <div class="spinner" aria-hidden="true"></div>
+                    <p id="status-text">Loading secure checkout…</p>
+                </div>
+                <div id="dropin-container"></div>
+            </section>
+        </main>
+    </div>
+
+    <script src="https://static.airwallex.com/components/sdk/v1/index.js"></script>
+    <script src="checkout.js"></script>
+</body>
+</html>

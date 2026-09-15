@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Users — VNP &lt;&gt; AIRWALLEX</title>
+    <script>
+        if (!(localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token'))) {
+            window.location.replace('/login');
+        }
+    </script>
+    <link rel="stylesheet" href="/assets/sidebar.css">
+    <link rel="stylesheet" href="/assets/dashboard.css">
+    <link rel="stylesheet" href="users.css">
+</head>
+<body>
+    <div class="app-shell">
+        <div data-sidebar-mount data-active="users"></div>
+
+        <main class="main-content">
+            <header class="page-header">
+                <div>
+                    <h1 class="page-title">Users</h1>
+                    <p class="page-subtitle">Manage who has access to this workspace.</p>
+                </div>
+                <div class="page-actions">
+                    <button class="btn btn-ghost" type="button" id="add-user-btn">
+                        <svg viewBox="0 0 16 16" fill="none">
+                            <circle cx="6" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/>
+                            <path d="M1.5 14c0-2.5 2-4.5 4.5-4.5S10.5 11.5 10.5 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            <path d="M12 5v4M14 7h-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                        </svg>
+                        Add user
+                    </button>
+                    <button class="btn btn-primary" type="button" id="invite-user-btn">
+                        <svg viewBox="0 0 16 16" fill="none">
+                            <path d="M2 4l6 4 6-4M2 4v8h12V4M2 4h12" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                        </svg>
+                        Invite user
+                    </button>
+                </div>
+            </header>
+
+            <section class="users-card">
+                <div class="users-card-header">
+                    <div class="users-status-tabs" id="status-tabs">
+                        <button class="status-tab active" type="button" data-status="">All</button>
+                        <button class="status-tab" type="button" data-status="active">Active</button>
+                        <button class="status-tab" type="button" data-status="pending">Pending</button>
+                        <button class="status-tab" type="button" data-status="revoked">Revoked</button>
+                    </div>
+                    <div class="search" id="search">
+                        <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none">
+                            <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8"/>
+                            <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                        </svg>
+                        <span class="search-spinner" aria-hidden="true"></span>
+                        <input type="text" id="search-input" placeholder="Search by name or email" autocomplete="off">
+                    </div>
+                </div>
+
+                <div class="users-table-wrap" id="users-table-wrap">
+                    <table class="users-table">
+                        <thead>
+                            <tr>
+                                <th class="col-user">User</th>
+                                <th>Status</th>
+                                <th>Joined</th>
+                                <th>Invited by</th>
+                                <th class="col-actions">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-tbody"></tbody>
+                    </table>
+                </div>
+                <div class="users-pagination" id="users-pagination" hidden></div>
+            </section>
+        </main>
+    </div>
+
+    <!-- ============ Add User Modal ============ -->
+    <div class="user-modal-backdrop" id="add-modal" hidden>
+        <div class="user-modal" role="dialog" aria-modal="true">
+            <button class="user-modal-close" type="button" data-close="add" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </button>
+            <header class="user-modal-header">
+                <div class="user-modal-icon">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <circle cx="10" cy="9" r="4" stroke="currentColor" stroke-width="1.8"/>
+                        <path d="M3 20c0-3.87 3.13-7 7-7s7 3.13 7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                        <path d="M19 8v6M22 11h-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                </div>
+                <h2 class="user-modal-title">Add user manually</h2>
+                <p class="user-modal-sub">Creates an active account immediately with the password you set — skip the email invite step.</p>
+            </header>
+            <form class="user-form" id="add-form" novalidate>
+                <div class="form-row-2">
+                    <div class="field"><label>First name</label><input type="text" name="first_name" required></div>
+                    <div class="field"><label>Last name</label><input type="text" name="last_name" required></div>
+                </div>
+                <div class="field"><label>Email</label><input type="email" name="email" required autocomplete="off"></div>
+                <div class="field"><label>Password</label><input type="password" name="password" required minlength="8" placeholder="At least 8 characters"></div>
+                <p class="form-error" id="add-error" role="alert" hidden></p>
+                <div class="user-modal-actions">
+                    <button type="button" class="btn btn-ghost" data-close="add">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="add-submit">
+                        <span class="btn-spinner" aria-hidden="true"></span>
+                        <span class="btn-label">Create user</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ============ Invite User Modal ============ -->
+    <div class="user-modal-backdrop" id="invite-modal" hidden>
+        <div class="user-modal" role="dialog" aria-modal="true">
+            <button class="user-modal-close" type="button" data-close="invite" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </button>
+            <header class="user-modal-header">
+                <div class="user-modal-icon accent">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M3 6l9 6 9-6M3 6v12h18V6M3 6h18" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                    </svg>
+                </div>
+                <h2 class="user-modal-title">Invite a user</h2>
+                <p class="user-modal-sub">They'll get an email with a link to set their own password and join the workspace.</p>
+            </header>
+            <form class="user-form" id="invite-form" novalidate>
+                <div class="form-row-2">
+                    <div class="field"><label>First name</label><input type="text" name="first_name" required></div>
+                    <div class="field"><label>Last name</label><input type="text" name="last_name" required></div>
+                </div>
+                <div class="field"><label>Email</label><input type="email" name="email" required autocomplete="off"></div>
+                <p class="form-error" id="invite-error" role="alert" hidden></p>
+                <div class="user-modal-actions">
+                    <button type="button" class="btn btn-ghost" data-close="invite">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="invite-submit">
+                        <span class="btn-spinner" aria-hidden="true"></span>
+                        <span class="btn-label">Send invite</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ============ Revoke Confirm Modal ============ -->
+    <div class="user-modal-backdrop" id="revoke-modal" hidden>
+        <div class="user-modal" role="dialog" aria-modal="true">
+            <button class="user-modal-close" type="button" data-close="revoke" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </button>
+            <header class="user-modal-header">
+                <div class="user-modal-icon danger">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M12 2L2 22h20L12 2z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                        <path d="M12 9v5M12 17v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </div>
+                <h2 class="user-modal-title">Revoke access?</h2>
+                <p class="user-modal-sub">This will stop <strong id="revoke-name">this user</strong> from being able to log in. Their uploaded files and data will be preserved. You can re-invite them later.</p>
+            </header>
+            <p class="form-error" id="revoke-error" role="alert" hidden></p>
+            <div class="user-modal-actions">
+                <button type="button" class="btn btn-ghost" data-close="revoke">Cancel</button>
+                <button type="button" class="btn btn-danger" id="revoke-submit">
+                    <span class="btn-spinner" aria-hidden="true"></span>
+                    <span class="btn-label">Revoke access</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ Toast ============ -->
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden>
+        <span class="toast-icon"></span>
+        <span class="toast-text"></span>
+    </div>
+
+    <script src="/assets/sidebar.js"></script>
+    <script src="users.js"></script>
+</body>
+</html>

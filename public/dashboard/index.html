@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard — VNP &lt;&gt; AIRWALLEX</title>
+    <script>
+        if (!(localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token'))) {
+            window.location.replace('/login');
+        }
+    </script>
+    <link rel="stylesheet" href="/assets/sidebar.css">
+    <link rel="stylesheet" href="/assets/dashboard.css">
+    <link rel="stylesheet" href="/assets/table.css">
+    <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden>
+        <span class="toast-icon"></span>
+        <span class="toast-text"></span>
+    </div>
+
+    <div class="app-shell">
+        <div data-sidebar-mount data-active="dashboard"></div>
+
+        <main class="main-content">
+            <header class="page-header">
+                <div>
+                    <h1 class="page-title">Dashboard</h1>
+                    <p class="page-subtitle" id="page-subtitle">VNP &lt;&gt; Airwallex integration console.</p>
+                </div>
+            </header>
+
+            <!-- ============ Period tabs + stats ============ -->
+            <section class="stats-section">
+                <div class="stats-controls">
+                    <div class="period-tabs" id="period-tabs" role="tablist" aria-label="Stats period">
+                        <button class="period-tab active" data-period="all" role="tab" aria-selected="true">All time</button>
+                        <button class="period-tab" data-period="year" role="tab" aria-selected="false">Year</button>
+                        <button class="period-tab" data-period="month" role="tab" aria-selected="false">Month</button>
+                        <button class="period-tab" data-period="week" role="tab" aria-selected="false">Week</button>
+                    </div>
+                </div>
+                <div class="stats-grid" id="stats-grid">
+                    <div class="stat-card stat-skeleton"></div>
+                    <div class="stat-card stat-skeleton"></div>
+                    <div class="stat-card stat-skeleton"></div>
+                    <div class="stat-card stat-skeleton"></div>
+                </div>
+            </section>
+
+            <!-- ============ Charts ============ -->
+            <section class="charts-section">
+                <article class="chart-card chart-card-wide" id="chart-card-daily">
+                    <header class="chart-header">
+                        <div>
+                            <h2 class="chart-title">Daily payment volume</h2>
+                            <p class="chart-sub">Amount created each day, split by the outcome each payment reached.</p>
+                        </div>
+                        <div class="chart-legend" id="legend-daily"></div>
+                    </header>
+                    <div class="chart-body">
+                        <div class="chart-canvas-wrap" id="chart-daily"></div>
+                        <div class="chart-empty" id="chart-empty-daily" hidden>No payments in this period.</div>
+                    </div>
+                </article>
+
+                <article class="chart-card chart-card-donut" id="chart-card-portfolio">
+                    <header class="chart-header">
+                        <div>
+                            <h2 class="chart-title">Payments by portfolio</h2>
+                            <p class="chart-sub">Which portfolios the payments were taken for.</p>
+                        </div>
+                    </header>
+                    <div class="chart-body chart-body-donut">
+                        <div class="donut-canvas-wrap">
+                            <div id="chart-portfolio"></div>
+                            <div class="donut-center" id="center-portfolio">
+                                <div class="donut-center-value">—</div>
+                                <div class="donut-center-label">total</div>
+                            </div>
+                        </div>
+                        <div class="donut-legend" id="legend-portfolio"></div>
+                        <div class="chart-empty" id="chart-empty-portfolio" hidden>No hotel payments yet.</div>
+                    </div>
+                </article>
+
+                <article class="chart-card chart-card-donut" id="chart-card-status">
+                    <header class="chart-header">
+                        <div>
+                            <h2 class="chart-title">Payment status</h2>
+                            <p class="chart-sub">Where every payment intent ended up.</p>
+                        </div>
+                    </header>
+                    <div class="chart-body chart-body-donut">
+                        <div class="donut-canvas-wrap">
+                            <div id="chart-status"></div>
+                            <div class="donut-center" id="center-status">
+                                <div class="donut-center-value">—</div>
+                                <div class="donut-center-label">total</div>
+                            </div>
+                        </div>
+                        <div class="donut-legend" id="legend-status"></div>
+                        <div class="chart-empty" id="chart-empty-status" hidden>No data yet.</div>
+                    </div>
+                </article>
+            </section>
+
+            <section class="placeholder-card">
+                <h2 class="placeholder-title">Airwallex integration</h2>
+                <p class="placeholder-text">
+                    Card payments run through Airwallex — either their Hosted Payment
+                    Page or an embedded drop-in element, both with a dynamic statement
+                    descriptor. Every intent is mirrored locally so the payment history
+                    survives independently of Airwallex's retention window.
+                </p>
+                <div class="placeholder-actions">
+                    <a class="btn btn-primary" href="/payments">Go to payments</a>
+                    <a class="btn btn-ghost" href="/api/docs" target="_blank" rel="noopener">API docs</a>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/assets/sidebar.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts@4.0.0/dist/apexcharts.min.js"></script>
+    <script src="dashboard.js"></script>
+</body>
+</html>

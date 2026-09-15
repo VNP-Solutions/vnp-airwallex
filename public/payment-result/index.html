@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment result — VNP &lt;&gt; AIRWALLEX</title>
+    <link rel="stylesheet" href="payment-result.css">
+</head>
+<body>
+    <main class="result-shell">
+        <div class="result-card" id="card">
+            <img src="/assets/logo.svg" alt="VNP" class="result-logo">
+
+            <div class="result-icon" id="icon">
+                <div class="spinner" aria-hidden="true"></div>
+            </div>
+
+            <h1 class="result-title" id="title">Confirming your payment…</h1>
+            <p class="result-message" id="message">Checking the status with Airwallex.</p>
+
+            <dl class="result-meta" id="meta" hidden>
+                <div><dt>Amount</dt><dd id="meta-amount">—</dd></div>
+                <div><dt>Order</dt><dd id="meta-order">—</dd></div>
+                <div><dt>Statement descriptor</dt><dd id="meta-descriptor" class="mono">—</dd></div>
+            </dl>
+
+            <a class="result-btn" id="continue" href="/payments">Back to payments</a>
+        </div>
+    </main>
+
+    <script src="payment-result.js"></script>
+</body>
+</html>

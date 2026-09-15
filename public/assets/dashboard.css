@@ -1,0 +1,153 @@
+/* ============================================================
+   Dashboard shell — app layout, page header, buttons
+   Sidebar styles live in /assets/sidebar.css
+   ============================================================ */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    height: 100%;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: #FFFFFF;
+    background: #0A1428;
+    -webkit-font-smoothing: antialiased;
+}
+
+button {
+    font-family: inherit;
+    border: none;
+    background: none;
+    cursor: pointer;
+    color: inherit;
+}
+
+a {
+    text-decoration: none;
+    color: inherit;
+}
+
+input, textarea {
+    font-family: inherit;
+}
+
+.app-shell {
+    display: flex;
+    min-height: 100vh;
+}
+
+/* Main content area */
+.main-content {
+    flex: 1;
+    background: #0F1B33;
+    min-width: 0;
+    padding: 32px 40px 48px;
+    overflow-y: auto;
+}
+
+.page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 28px;
+    animation: fadeSlideIn 0.35s ease-out;
+}
+
+.page-title {
+    font-size: 24px;
+    font-weight: 700;
+    color: #FFFFFF;
+    letter-spacing: -0.2px;
+}
+
+.page-subtitle {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.55);
+    margin-top: 4px;
+}
+
+.page-actions {
+    display: flex;
+    gap: 10px;
+}
+
+/* Shared buttons */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 18px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, transform 0.05s, opacity 0.2s, box-shadow 0.2s;
+    white-space: nowrap;
+}
+
+.btn:active:not(:disabled) {
+    transform: translateY(1px);
+}
+
+.btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.btn-primary {
+    background: #FFD200;
+    color: #0F1B33;
+    box-shadow: 0 6px 18px rgba(255, 210, 0, 0.25);
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: #FFDC2E;
+    box-shadow: 0 8px 22px rgba(255, 210, 0, 0.35);
+}
+
+.btn-ghost {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.btn-ghost:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: #FFFFFF;
+}
+
+.btn-danger {
+    background: linear-gradient(135deg, #E25555 0%, #C13838 100%);
+    color: #FFFFFF;
+    box-shadow: 0 6px 18px rgba(226, 85, 85, 0.3);
+}
+
+.btn-danger:hover:not(:disabled) {
+    background: linear-gradient(135deg, #EE6868 0%, #D04545 100%);
+    box-shadow: 0 8px 22px rgba(226, 85, 85, 0.4);
+}
+
+.btn svg {
+    width: 16px;
+    height: 16px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+@keyframes fadeSlideIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 800px) {
+    .main-content { padding: 24px 20px 32px; }
+}

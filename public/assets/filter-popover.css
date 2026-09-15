@@ -1,0 +1,385 @@
+/* Shared column-filter popover — extracted from the QP utility's dataset page
+   so any table view can offer the same Excel-style filter + sort UI.
+   Pair with /assets/table-filters.js */
+
+/* ============================================================
+   Column header filter button
+   ============================================================ */
+.data-table thead th {
+    position: relative;
+}
+
+.data-table thead th .th-label {
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.data-table thead th .filter-btn {
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.32);
+    margin-left: 6px;
+    padding: 3px 4px;
+    border-radius: 4px;
+    cursor: pointer;
+    vertical-align: middle;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s, background 0.15s, opacity 0.15s;
+}
+
+.data-table thead th .filter-btn:hover {
+    color: #FFD200;
+    background: rgba(255, 210, 0, 0.1);
+}
+
+.data-table thead th .filter-btn.active {
+    color: #FFD200;
+    background: rgba(255, 210, 0, 0.15);
+}
+
+.data-table thead th .filter-btn svg {
+    width: 11px;
+    height: 11px;
+    display: block;
+}
+
+
+/* ============================================================
+   Filter Popover
+   ============================================================ */
+.filter-popover {
+    position: fixed;
+    z-index: 250;
+    width: 320px;
+    max-width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+    display: flex;
+    flex-direction: column;
+    background: linear-gradient(180deg, #142544 0%, #0F1B33 100%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    box-shadow: 0 22px 60px rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+    transition: opacity 0.18s, transform 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+}
+
+.filter-popover.visible {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+}
+
+.filter-popover[hidden] {
+    display: none;
+}
+
+.filter-popover-header {
+    padding: 13px 18px;
+    background: rgba(255, 255, 255, 0.025);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 13px;
+    font-weight: 600;
+    color: #FFFFFF;
+    letter-spacing: 0.2px;
+    flex-shrink: 0;
+}
+
+/* Body scrolls vertically when content exceeds its calculated max-height
+   (set inline by JS based on viewport). Single scroll container so the
+   Apply button in the footer is always reachable. */
+.filter-popover-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.filter-popover-footer {
+    padding: 12px 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+/* Sort buttons row — always visible above the filter section */
+.filter-sort-section {
+    padding: 6px 0;
+    flex-shrink: 0;
+}
+
+.filter-sort-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 18px;
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.78);
+    font-size: 13px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+}
+
+.filter-sort-btn:hover {
+    background: rgba(255, 255, 255, 0.04);
+    color: #FFFFFF;
+}
+
+.filter-sort-btn.active {
+    color: #FFD200;
+    background: rgba(255, 210, 0, 0.08);
+}
+
+.filter-sort-btn svg {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+}
+
+/* Filter section — natural sizing. The popover body scrolls when needed. */
+.filter-section {
+    padding: 14px 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.filter-section-label {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: rgba(255, 255, 255, 0.45);
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+/* Search input inside list filter */
+.filter-search-wrap {
+    position: relative;
+}
+
+.filter-search-icon {
+    position: absolute;
+    left: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: rgba(255, 255, 255, 0.4);
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+}
+
+.filter-search-icon svg {
+    width: 12px;
+    height: 12px;
+}
+
+.filter-search-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 8px 10px 8px 32px;
+    color: #FFFFFF;
+    font-size: 13px;
+    font-family: inherit;
+    transition: border-color 0.15s, background 0.15s;
+    outline: none;
+}
+
+.filter-search-input:focus {
+    border-color: rgba(255, 210, 0, 0.55);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.filter-search-input::placeholder {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+/* Number / date / generic inputs */
+.filter-text-input,
+.filter-date-input,
+.filter-select {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: #FFFFFF;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.filter-text-input:focus,
+.filter-date-input:focus,
+.filter-select:focus {
+    border-color: rgba(255, 210, 0, 0.55);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.filter-text-input::placeholder,
+.filter-date-input::placeholder {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+/* Style the native date picker indicator for dark backgrounds */
+.filter-date-input::-webkit-calendar-picker-indicator {
+    filter: invert(0.7) brightness(1.2);
+    cursor: pointer;
+}
+
+.filter-row-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+/* Actions row above the checkbox list */
+.filter-actions-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 10px 0 8px;
+}
+
+.filter-actions-left {
+    display: flex;
+    gap: 4px;
+}
+
+.filter-link {
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 4px;
+    transition: color 0.15s, background 0.15s;
+}
+
+.filter-link:hover {
+    color: #FFFFFF;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.filter-link.primary {
+    color: #FFD200;
+    font-weight: 600;
+}
+
+.filter-count {
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Checkbox list — natural sizing, scroll handled by the body */
+.filter-checkboxes {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-right: 2px;
+}
+
+.filter-check {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    padding: 6px 4px;
+    border-radius: 4px;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 13px;
+    user-select: none;
+    transition: background 0.12s;
+}
+
+.filter-check:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.filter-check input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.filter-check-box {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 1.5px solid rgba(255, 255, 255, 0.25);
+    background: transparent;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.filter-check input:checked + .filter-check-box {
+    background: #FFD200;
+    border-color: #FFD200;
+}
+
+.filter-check input:checked + .filter-check-box::after {
+    content: '';
+    width: 8px;
+    height: 5px;
+    border-left: 2px solid #0F1B33;
+    border-bottom: 2px solid #0F1B33;
+    transform: rotate(-45deg) translate(1px, -1px);
+}
+
+.filter-check-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.filter-loading,
+.filter-empty {
+    padding: 16px 0;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 12px;
+}
+
+/* Apply button */
+.filter-apply-btn {
+    flex: 1;
+    height: 38px;
+    background: #FFD200;
+    color: #0F1B33;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.05s, box-shadow 0.15s;
+    box-shadow: 0 6px 16px rgba(255, 210, 0, 0.2);
+}
+
+.filter-apply-btn:hover {
+    background: #FFDC2E;
+    box-shadow: 0 8px 20px rgba(255, 210, 0, 0.3);
+}
+
+.filter-apply-btn:active {
+    transform: translateY(1px);
+}
+
+/* Hotel cell — DBA name stacked above the MID + copy button */

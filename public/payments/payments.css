@@ -1,0 +1,825 @@
+/* Payments page — stat strip, descriptor preview, checkout mode picker.
+   Table, modal, pill and pagination styling come from /assets/table.css */
+
+/* ============ Stat strip ============ */
+.pay-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 14px;
+    margin-bottom: 20px;
+}
+
+.pay-stat {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 16px 18px;
+}
+
+.pay-stat-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 1.1px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 8px;
+}
+
+.pay-stat-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: #FFFFFF;
+}
+
+/* ============ Table cells ============ */
+.order-id {
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.amount-cell {
+    font-weight: 700;
+    font-size: 14px;
+    white-space: nowrap;
+}
+
+.amount-currency {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.45);
+    margin-left: 4px;
+}
+
+.descriptor-cell {
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: #FFD200;
+    background: rgba(255, 210, 0, 0.08);
+    border: 1px solid rgba(255, 210, 0, 0.15);
+    border-radius: 6px;
+    padding: 3px 8px;
+    display: inline-block;
+    white-space: nowrap;
+}
+
+.mode-tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 5px;
+    padding: 2px 6px;
+    margin-top: 5px;
+}
+
+/* ============ Descriptor preview ============ */
+.descriptor-preview {
+    background: rgba(255, 210, 0, 0.05);
+    border: 1px solid rgba(255, 210, 0, 0.16);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+}
+
+.descriptor-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.descriptor-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.descriptor-count {
+    font-size: 11px;
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.descriptor-count.over {
+    color: #FF6B6B;
+}
+
+.descriptor-value {
+    display: block;
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    font-size: 15px;
+    font-weight: 600;
+    color: #FFD200;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+    word-break: break-all;
+}
+
+.descriptor-note {
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.45);
+    margin-bottom: 10px;
+}
+
+.descriptor-preview input {
+    width: 100%;
+    height: 38px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 0 12px;
+    font-size: 13px;
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    color: #FFFFFF;
+    outline: none;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.descriptor-preview input:focus {
+    border-color: #FFD200;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.descriptor-preview input::placeholder {
+    color: rgba(255, 255, 255, 0.3);
+    font-family: 'Inter', -apple-system, sans-serif;
+}
+
+/* ============ Checkout mode picker ============ */
+.mode-picker {
+    display: grid;
+    gap: 10px;
+}
+
+.mode-option {
+    position: relative;
+    display: block;
+    padding: 13px 15px 13px 40px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.03);
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.mode-option:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.mode-option.selected {
+    border-color: #FFD200;
+    background: rgba(255, 210, 0, 0.07);
+}
+
+.mode-option input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.mode-option::before {
+    content: '';
+    position: absolute;
+    left: 15px;
+    top: 16px;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255, 255, 255, 0.28);
+    transition: border-color 0.15s;
+}
+
+.mode-option.selected::before {
+    border-color: #FFD200;
+    border-width: 5px;
+}
+
+.mode-title {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: #FFFFFF;
+    margin-bottom: 3px;
+}
+
+.mode-sub {
+    display: block;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+/* ============ Advanced disclosure ============ */
+.advanced {
+    margin-bottom: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 0 14px;
+}
+
+.advanced summary {
+    cursor: pointer;
+    padding: 12px 0;
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.75);
+    user-select: none;
+}
+
+.advanced summary::marker {
+    color: rgba(255, 255, 255, 0.35);
+}
+
+.advanced[open] summary {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    margin-bottom: 14px;
+}
+
+.field-hint {
+    font-size: 11px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.35);
+    margin-left: 5px;
+}
+
+.modal-form select {
+    width: 100%;
+    height: 42px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 9px;
+    padding: 0 12px;
+    font-size: 13.5px;
+    font-family: inherit;
+    color: #FFFFFF;
+    outline: none;
+    cursor: pointer;
+}
+
+.modal-form select:focus {
+    border-color: #FFD200;
+}
+
+.modal-form select option {
+    background: #14274E;
+    color: #FFFFFF;
+}
+
+/* ============ Detail modal ============ */
+.modal-wide {
+    max-width: 620px;
+}
+
+.detail-head {
+    margin-bottom: 20px;
+    padding-right: 30px;
+}
+
+.detail-amount {
+    font-size: 30px;
+    font-weight: 700;
+    color: #FFFFFF;
+    margin-bottom: 6px;
+}
+
+.detail-amount span {
+    font-size: 15px;
+    color: rgba(255, 255, 255, 0.45);
+    margin-left: 5px;
+}
+
+.detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1px;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 20px;
+}
+
+.detail-item {
+    background: #14274E;
+    padding: 12px 14px;
+}
+
+.detail-key {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.9px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.4);
+    margin-bottom: 5px;
+}
+
+.detail-val {
+    font-size: 13px;
+    color: #FFFFFF;
+    word-break: break-all;
+}
+
+.detail-val.mono {
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px;
+}
+
+.timeline-title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.9px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.4);
+    margin-bottom: 12px;
+}
+
+.timeline {
+    list-style: none;
+    max-height: 220px;
+    overflow-y: auto;
+    padding-left: 4px;
+}
+
+.timeline li {
+    position: relative;
+    padding: 0 0 16px 22px;
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.timeline li:last-child {
+    border-left-color: transparent;
+    padding-bottom: 0;
+}
+
+.timeline li::before {
+    content: '';
+    position: absolute;
+    left: -4.5px;
+    top: 4px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #6FA8FF;
+}
+
+.timeline li.is-success::before { background: #4CD295; }
+.timeline li.is-danger::before  { background: #FF6B6B; }
+
+.timeline-name {
+    font-size: 12.5px;
+    color: #FFFFFF;
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+}
+
+.timeline-meta {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.4);
+    margin-top: 3px;
+}
+
+.timeline-source {
+    display: inline-block;
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 4px;
+    padding: 1px 5px;
+    margin-left: 6px;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.detail-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 20px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+/* ============================================================
+   Active filter chips
+   ============================================================ */
+.active-filters {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 12px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(255, 210, 0, 0.03);
+}
+
+.active-filters[hidden] {
+    display: none;
+}
+
+.filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    padding: 4px 6px 4px 11px;
+    font-size: 12px;
+    max-width: 320px;
+}
+
+.filter-chip.sort-chip {
+    background: rgba(111, 168, 255, 0.08);
+    border-color: rgba(111, 168, 255, 0.25);
+    padding-right: 11px;
+}
+
+.filter-chip-label {
+    color: rgba(255, 255, 255, 0.45);
+    flex-shrink: 0;
+}
+
+.filter-chip-value {
+    color: #FFFFFF;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.filter-chip-remove {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    line-height: 1;
+    color: rgba(255, 255, 255, 0.5);
+    background: rgba(255, 255, 255, 0.07);
+    flex-shrink: 0;
+    transition: background 0.15s, color 0.15s;
+}
+
+.filter-chip-remove:hover {
+    background: rgba(255, 92, 92, 0.2);
+    color: #FF6B6B;
+}
+
+.filter-clear-all {
+    font-size: 12px;
+    font-weight: 600;
+    color: #FFD200;
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: background 0.15s;
+}
+
+.filter-clear-all:hover {
+    background: rgba(255, 210, 0, 0.1);
+}
+
+/* ============================================================
+   Totals for the filtered set
+   ============================================================ */
+.filtered-totals {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex-wrap: wrap;
+    padding: 13px 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.015);
+}
+
+.filtered-totals[hidden] {
+    display: none;
+}
+
+.totals-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.totals-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.totals-amount {
+    font-size: 15px;
+    font-weight: 700;
+    color: #FFFFFF;
+}
+
+.totals-currency {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.totals-count {
+    font-size: 11.5px;
+    color: rgba(255, 255, 255, 0.35);
+}
+
+/* ============================================================
+   Hotel picker
+   ============================================================ */
+.hotel-picker {
+    position: relative;
+}
+
+.hotel-picker input {
+    width: 100%;
+    height: 42px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 9px;
+    padding: 0 12px;
+    font-size: 13.5px;
+    font-family: inherit;
+    color: #FFFFFF;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.hotel-picker input:focus {
+    border-color: #FFD200;
+}
+
+.hotel-picker input[hidden] {
+    display: none;
+}
+
+.hotel-results {
+    position: absolute;
+    top: calc(100% + 5px);
+    left: 0;
+    right: 0;
+    z-index: 140;
+    max-height: 260px;
+    overflow-y: auto;
+    background: #14274E;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 10px;
+    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.5);
+    padding: 5px;
+}
+
+.hotel-results[hidden] {
+    display: none;
+}
+
+.hotel-option {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas: 'name descriptor' 'meta descriptor';
+    gap: 2px 10px;
+    width: 100%;
+    text-align: left;
+    padding: 8px 10px;
+    border-radius: 7px;
+    transition: background 0.12s;
+}
+
+.hotel-option:hover {
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.hotel-option-name {
+    grid-area: name;
+    font-size: 13px;
+    font-weight: 600;
+    color: #FFFFFF;
+}
+
+.hotel-option-meta {
+    grid-area: meta;
+    font-size: 11.5px;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.hotel-option-descriptor {
+    grid-area: descriptor;
+    align-self: center;
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    font-size: 10.5px;
+    color: #FFD200;
+    background: rgba(255, 210, 0, 0.1);
+    border-radius: 5px;
+    padding: 2px 7px;
+    white-space: nowrap;
+}
+
+.hotel-empty {
+    padding: 14px;
+    text-align: center;
+    font-size: 12.5px;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.hotel-selected {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(255, 210, 0, 0.07);
+    border: 1px solid rgba(255, 210, 0, 0.25);
+    border-radius: 9px;
+    padding: 8px 10px 8px 13px;
+    min-height: 42px;
+}
+
+.hotel-selected[hidden] {
+    display: none;
+}
+
+.hotel-selected-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.hotel-selected-name {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: #FFFFFF;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.hotel-selected-meta {
+    display: block;
+    font-size: 11.5px;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.hotel-clear {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 17px;
+    line-height: 1;
+    color: rgba(255, 255, 255, 0.55);
+    background: rgba(255, 255, 255, 0.08);
+    flex-shrink: 0;
+    transition: background 0.15s, color 0.15s;
+}
+
+.hotel-clear:hover {
+    background: rgba(255, 92, 92, 0.22);
+    color: #FF6B6B;
+}
+
+/* ============================================================
+   Bulk preview list
+   ============================================================ */
+.bulk-preview-list {
+    list-style: none;
+    margin-top: 12px;
+    max-height: 220px;
+    overflow-y: auto;
+    display: grid;
+    gap: 7px;
+}
+
+.bulk-preview-list li {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 12.5px;
+}
+
+.bulk-preview-list .bulk-line {
+    color: #7FE3B5;
+    background: rgba(76, 210, 149, 0.14);
+}
+
+.bulk-preview-hotel {
+    color: rgba(255, 255, 255, 0.8);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.bulk-preview-amount {
+    margin-left: auto;
+    font-weight: 600;
+    color: #FFFFFF;
+    white-space: nowrap;
+}
+
+.portfolio-tag {
+    display: inline-block;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #6FA8FF;
+    background: rgba(111, 168, 255, 0.1);
+    border: 1px solid rgba(111, 168, 255, 0.2);
+    border-radius: 6px;
+    padding: 3px 9px;
+    white-space: nowrap;
+}
+
+.autofill-hint {
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: #7FE3B5;
+    margin-top: 6px;
+}
+
+.autofill-hint[hidden] {
+    display: none;
+}
+
+/* Descriptions are free text and can run long — cap the column and keep the
+   full value in a title tooltip rather than letting one row stretch the table. */
+.description-cell {
+    display: inline-block;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+    font-size: 12.5px;
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.descriptor-warn {
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: #FFB94B;
+    background: rgba(255, 185, 75, 0.08);
+    border: 1px solid rgba(255, 185, 75, 0.22);
+    border-radius: 7px;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+}
+
+.descriptor-warn[hidden] {
+    display: none;
+}
+
+.bulk-subhead {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #FFFFFF;
+}
+
+.bulk-note {
+    margin-top: 12px;
+    font-size: 11.5px;
+    line-height: 1.6;
+    color: #FFB94B;
+    background: rgba(255, 185, 75, 0.08);
+    border: 1px solid rgba(255, 185, 75, 0.22);
+    border-radius: 7px;
+    padding: 9px 11px;
+}
+
+.bulk-note strong {
+    color: #FFD200;
+}
+
+/* Pay button — sits in the row actions for payments still awaiting payment. */
+.pay-btn {
+    font-size: 12px;
+    font-weight: 700;
+    color: #0F1B33;
+    background: #FFD200;
+    border-radius: 6px;
+    padding: 4px 11px;
+    transition: background 0.15s, box-shadow 0.15s, opacity 0.15s;
+    white-space: nowrap;
+}
+
+.pay-btn:hover:not(:disabled) {
+    background: #FFDC2E;
+    box-shadow: 0 4px 12px rgba(255, 210, 0, 0.28);
+}
+
+.pay-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}

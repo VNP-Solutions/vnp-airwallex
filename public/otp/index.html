@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify — VNP &lt;&gt; AIRWALLEX</title>
+    <link rel="stylesheet" href="otp.css">
+</head>
+<body>
+    <div class="login-container">
+        <!-- Left Panel: Branding & Illustration -->
+        <aside class="left-panel">
+            <div class="brand">
+                <img src="/assets/logo.svg" alt="Logo" class="brand-logo">
+            </div>
+
+            <div class="illustration">
+                <div class="card balance-card">
+                    <div class="card-icon balance-icon">
+                        <svg width="22" height="16" viewBox="0 0 22 16" fill="none">
+                            <rect x="1" y="1" width="20" height="14" rx="2" fill="#2F6BFF"/>
+                            <rect x="1" y="4" width="20" height="3" fill="#1B4FCC"/>
+                        </svg>
+                    </div>
+                    <p class="card-label">Charged this month</p>
+                    <p class="card-amount"><span class="currency">$</span><span class="amount">24,359</span></p>
+                </div>
+
+                <div class="card chart-card">
+                    <svg class="donut" viewBox="0 0 120 120" width="170" height="170">
+                        <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(255, 255, 255, 0.1)" stroke-width="18"/>
+                        <circle cx="60" cy="60" r="50" fill="none" stroke="#2F6BFF" stroke-width="18"
+                                stroke-dasharray="106.8 314.16" stroke-dashoffset="0" transform="rotate(-90 60 60)"/>
+                        <circle cx="60" cy="60" r="50" fill="none" stroke="#2EC27E" stroke-width="18"
+                                stroke-dasharray="81.7 314.16" stroke-dashoffset="-106.8" transform="rotate(-90 60 60)"/>
+                        <circle cx="60" cy="60" r="50" fill="none" stroke="#F5A623" stroke-width="18"
+                                stroke-dasharray="69.1 314.16" stroke-dashoffset="-188.5" transform="rotate(-90 60 60)"/>
+                        <circle cx="60" cy="60" r="50" fill="none" stroke="#EF5350" stroke-width="18"
+                                stroke-dasharray="56.5 314.16" stroke-dashoffset="-257.6" transform="rotate(-90 60 60)"/>
+                    </svg>
+                    <div class="donut-center">
+                        <p class="donut-percent">34<span>%</span></p>
+                        <p class="donut-label">Declined</p>
+                    </div>
+                    <div class="cursor">
+                        <svg width="16" height="18" viewBox="0 0 16 18" fill="none">
+                            <path d="M1 1 L1 14 L5 11 L8 17 L10 16 L7 10 L13 10 Z" fill="#1A1A1A" stroke="#fff" stroke-width="1"/>
+                        </svg>
+                    </div>
+                </div>
+
+                <div class="card transaction-card">
+                    <button class="add-btn" aria-label="Add transaction">
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                            <path d="M10 4V16M4 10H16" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+                        </svg>
+                    </button>
+                    <p class="transaction-title">New payout batch</p>
+                    <p class="transaction-subtitle">via <span>Airwallex</span> API</p>
+                </div>
+            </div>
+
+            <div class="welcome-block">
+                <h2 class="welcome-title">Almost there!</h2>
+                <p class="welcome-text">Enter the verification code we just sent</p>
+                <p class="welcome-text">to keep your account safe and secure</p>
+            </div>
+        </aside>
+
+        <!-- Right Panel: OTP Form -->
+        <main class="right-panel">
+            <div class="form-wrapper">
+                <a href="/login" class="back-link">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                        <path d="M9 1L3 7L9 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Back to login
+                </a>
+
+                <header class="form-header">
+                    <h1 class="form-title">Verify your identity</h1>
+                    <p class="form-subtitle">
+                        We sent a 6-digit code to <span id="otp-email" class="email-highlight">your email</span>.
+                        Enter it below to continue.
+                    </p>
+                </header>
+
+                <form class="login-form" id="otp-form" novalidate>
+                    <div class="otp-inputs" id="otp-inputs">
+                        <input type="text" class="otp-input" maxlength="1" inputmode="numeric" pattern="[0-9]" autocomplete="one-time-code">
+                        <input type="text" class="otp-input" maxlength="1" inputmode="numeric" pattern="[0-9]">
+                        <input type="text" class="otp-input" maxlength="1" inputmode="numeric" pattern="[0-9]">
+                        <input type="text" class="otp-input" maxlength="1" inputmode="numeric" pattern="[0-9]">
+                        <input type="text" class="otp-input" maxlength="1" inputmode="numeric" pattern="[0-9]">
+                        <input type="text" class="otp-input" maxlength="1" inputmode="numeric" pattern="[0-9]">
+                    </div>
+
+                    <p class="form-error" id="form-error" role="alert" hidden></p>
+
+                    <button type="submit" class="login-btn" id="verify-btn">Verify</button>
+
+                    <p class="otp-meta">
+                        Didn't receive a code?
+                        <a href="#" class="resend-link" id="resend-link">Resend</a>
+                    </p>
+                </form>
+            </div>
+
+            <footer class="form-footer">© 2026 VNPS HOLDINGS ALL RIGHTS RESERVED</footer>
+        </main>
+    </div>
+    <script src="otp.js"></script>
+</body>
+</html>

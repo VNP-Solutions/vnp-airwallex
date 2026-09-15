@@ -1,0 +1,304 @@
+/* Shared styling for the CSV bulk flows: dropzone, results, dropdown menus.
+   Used by the hotels and payments pages. */
+
+/* ============ Dropdown menu (templates / actions) ============ */
+.menu-wrap {
+    position: relative;
+}
+
+.menu-chevron {
+    width: 11px;
+    height: 11px;
+    margin-left: 2px;
+    transition: transform 0.15s;
+}
+
+.menu-wrap.open .menu-chevron {
+    transform: rotate(180deg);
+}
+
+.menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 120;
+    min-width: 240px;
+    background: #14274E;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    box-shadow: 0 20px 46px rgba(0, 0, 0, 0.5);
+    padding: 6px;
+    overflow: hidden;
+}
+
+.menu[hidden] {
+    display: none;
+}
+
+.menu-option {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    color: #FFFFFF;
+    transition: background 0.15s;
+}
+
+.menu-option:hover {
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.menu-option span {
+    display: block;
+    font-size: 11.5px;
+    color: rgba(255, 255, 255, 0.45);
+    margin-top: 2px;
+}
+
+/* ============ Bulk modal body ============ */
+.bulk-body {
+    margin-bottom: 20px;
+}
+
+.bulk-template-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: #FFD200;
+    margin-bottom: 14px;
+    cursor: pointer;
+}
+
+.bulk-template-link:hover {
+    text-decoration: underline;
+}
+
+.bulk-template-link svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* ============ Dropzone ============ */
+.dropzone {
+    display: block;
+    border: 1.5px dashed rgba(255, 255, 255, 0.2);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.025);
+    padding: 28px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.dropzone:hover,
+.dropzone.is-dragging {
+    border-color: #FFD200;
+    background: rgba(255, 210, 0, 0.06);
+}
+
+.dropzone.has-file {
+    border-style: solid;
+    border-color: rgba(76, 210, 149, 0.5);
+    background: rgba(76, 210, 149, 0.06);
+}
+
+.dropzone.is-error {
+    border-color: rgba(255, 107, 107, 0.6);
+    background: rgba(255, 107, 107, 0.06);
+}
+
+.dropzone-icon {
+    width: 26px;
+    height: 26px;
+    color: rgba(255, 255, 255, 0.4);
+    margin-bottom: 10px;
+}
+
+.dropzone.has-file .dropzone-icon {
+    color: #4CD295;
+}
+
+.dropzone-text {
+    font-size: 13.5px;
+    font-weight: 500;
+    color: #FFFFFF;
+    word-break: break-all;
+}
+
+.dropzone-hint {
+    font-size: 11.5px;
+    color: rgba(255, 255, 255, 0.4);
+    margin-top: 4px;
+}
+
+/* ============ Upsert toggle ============ */
+.upsert-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    margin-top: 14px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.7);
+    cursor: pointer;
+    user-select: none;
+}
+
+.upsert-toggle[hidden] {
+    display: none;
+}
+
+.upsert-toggle input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.upsert-toggle .checkbox-custom {
+    width: 17px;
+    height: 17px;
+    border-radius: 5px;
+    border: 1.5px solid rgba(255, 255, 255, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.upsert-toggle .checkbox-custom::after {
+    content: '';
+    width: 9px;
+    height: 5px;
+    border-left: 2px solid #0F1B33;
+    border-bottom: 2px solid #0F1B33;
+    transform: rotate(-45deg) translate(1px, -1px);
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.upsert-toggle input:checked + .checkbox-custom {
+    background: #FFD200;
+    border-color: #FFD200;
+}
+
+.upsert-toggle input:checked + .checkbox-custom::after {
+    opacity: 1;
+}
+
+/* ============ Result panel ============ */
+.bulk-result {
+    margin-top: 16px;
+    border-radius: 10px;
+    padding: 14px 16px;
+    font-size: 13px;
+}
+
+.bulk-result[hidden] {
+    display: none;
+}
+
+.bulk-result.is-error {
+    background: rgba(255, 107, 107, 0.07);
+    border: 1px solid rgba(255, 107, 107, 0.25);
+}
+
+.bulk-result.is-success {
+    background: rgba(76, 210, 149, 0.07);
+    border: 1px solid rgba(76, 210, 149, 0.28);
+}
+
+.bulk-result-head strong {
+    display: block;
+    font-size: 13.5px;
+    color: #FFFFFF;
+    margin-bottom: 3px;
+}
+
+.bulk-result-head span {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.bulk-error-list {
+    list-style: none;
+    margin-top: 12px;
+    max-height: 220px;
+    overflow-y: auto;
+    display: grid;
+    gap: 6px;
+}
+
+.bulk-error-list li {
+    display: flex;
+    gap: 9px;
+    font-size: 12.5px;
+    color: rgba(255, 255, 255, 0.78);
+    line-height: 1.5;
+}
+
+.bulk-line {
+    flex-shrink: 0;
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11px;
+    color: #FF9B9B;
+    background: rgba(255, 107, 107, 0.13);
+    border-radius: 4px;
+    padding: 1px 6px;
+    height: fit-content;
+}
+
+.bulk-more {
+    margin-top: 8px;
+    font-size: 11.5px;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+/* ============ Job progress ============ */
+.job-progress {
+    margin-top: 16px;
+}
+
+.job-progress[hidden] {
+    display: none;
+}
+
+.job-bar {
+    height: 7px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+    margin-bottom: 9px;
+}
+
+.job-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #FFD200, #FFDC2E);
+    border-radius: 4px;
+    width: 0;
+    transition: width 0.3s ease-out;
+}
+
+.job-status {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12.5px;
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.job-status .job-counts {
+    font-variant-numeric: tabular-nums;
+}
+
+.job-ok {
+    color: #4CD295;
+}
+
+.job-fail {
+    color: #FF6B6B;
+}

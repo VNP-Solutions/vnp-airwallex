@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payments — VNP &lt;&gt; AIRWALLEX</title>
+    <script>
+        if (!(localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token'))) {
+            window.location.replace('/login');
+        }
+    </script>
+    <link rel="stylesheet" href="/assets/sidebar.css">
+    <link rel="stylesheet" href="/assets/dashboard.css">
+    <link rel="stylesheet" href="/assets/table.css">
+    <link rel="stylesheet" href="/assets/filter-popover.css">
+    <link rel="stylesheet" href="/assets/bulk.css">
+    <link rel="stylesheet" href="payments.css">
+</head>
+<body>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+    <div class="app-shell">
+        <div data-sidebar-mount data-active="payments"></div>
+
+        <main class="main-content">
+            <header class="page-header">
+                <div>
+                    <h1 class="page-title">Payments</h1>
+                    <p class="page-subtitle">Collect payments through Airwallex and keep a full local history.</p>
+                </div>
+                <div class="page-actions">
+                    <button class="btn btn-ghost" type="button" id="refresh-btn">
+                        <svg viewBox="0 0 16 16" fill="none">
+                            <path d="M14 8A6 6 0 1 1 8 2c1.9 0 3.6 .9 4.7 2.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            <path d="M13 1.5V5h-3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        Refresh
+                    </button>
+                    <button class="btn btn-ghost" type="button" id="bulk-create-btn">
+                        <svg viewBox="0 0 16 16" fill="none">
+                            <path d="M8 10V2M4.5 5.5L8 2l3.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M2.5 10v2A1.5 1.5 0 0 0 4 13.5h8a1.5 1.5 0 0 0 1.5-1.5v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                        </svg>
+                        Bulk create
+                    </button>
+                    <button class="btn btn-primary" type="button" id="new-payment-btn">
+                        <svg viewBox="0 0 16 16" fill="none">
+                            <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+                        </svg>
+                        New payment
+                    </button>
+                </div>
+            </header>
+
+            <section class="pay-stats" id="pay-stats">
+                <article class="pay-stat"><p class="pay-stat-label">Total</p><p class="pay-stat-value" id="stat-total">—</p></article>
+                <article class="pay-stat"><p class="pay-stat-label">Succeeded</p><p class="pay-stat-value" id="stat-succeeded">—</p></article>
+                <article class="pay-stat"><p class="pay-stat-label">Awaiting payment</p><p class="pay-stat-value" id="stat-pending">—</p></article>
+                <article class="pay-stat"><p class="pay-stat-label">Captured</p><p class="pay-stat-value" id="stat-captured">—</p></article>
+            </section>
+
+            <section class="data-card">
+                <div class="data-card-header">
+                    <div class="filter-tabs" id="status-tabs">
+                        <button class="status-tab active" type="button" data-status="">All</button>
+                        <button class="status-tab" type="button" data-status="REQUIRES_PAYMENT_METHOD">Awaiting</button>
+                        <button class="status-tab" type="button" data-status="SUCCEEDED">Succeeded</button>
+                        <button class="status-tab" type="button" data-status="CANCELLED">Cancelled</button>
+                    </div>
+                    <div class="search" id="search">
+                        <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none">
+                            <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8"/>
+                            <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                        </svg>
+                        <span class="search-spinner" aria-hidden="true"></span>
+                        <input type="text" id="search-input" placeholder="Search order, reference or customer" autocomplete="off">
+                    </div>
+                </div>
+
+                <div class="active-filters" id="active-filters" hidden></div>
+
+                <div class="data-table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr id="payments-thead-row"></tr>
+                        </thead>
+                        <tbody id="payments-tbody"></tbody>
+                    </table>
+                </div>
+                <div class="filtered-totals" id="filtered-totals" hidden></div>
+                <div class="pagination-bar" id="payments-pagination" hidden></div>
+            </section>
+        </main>
+    </div>
+
+    <!-- ============ Filter popover (single instance, repositioned per click) ============ -->
+    <div class="filter-popover" id="filter-popover" hidden></div>
+
+    <!-- ============ New Payment Modal ============ -->
+    <div class="modal-backdrop" id="new-modal" hidden>
+        <div class="modal" role="dialog" aria-modal="true">
+            <button class="modal-close" type="button" data-close="new" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </button>
+            <header class="modal-header">
+                <div class="modal-icon accent">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <rect x="2" y="5" width="20" height="14" rx="2.5" stroke="currentColor" stroke-width="1.8"/>
+                        <path d="M2 10h20" stroke="currentColor" stroke-width="1.8"/>
+                    </svg>
+                </div>
+                <h2 class="modal-title">Take a payment</h2>
+                <p class="modal-sub">Creates an Airwallex Payment Intent and opens the embedded checkout. Nothing is charged until the shopper completes payment.</p>
+            </header>
+
+            <form class="modal-form" id="new-form" novalidate>
+                <div class="form-row-2">
+                    <div class="field">
+                        <label>Amount</label>
+                        <input type="number" name="amount" step="0.01" min="0.01" required placeholder="0.00">
+                    </div>
+                    <div class="field">
+                        <label>Currency</label>
+                        <select name="currency" id="currency-select">
+                            <option value="USD">USD</option>
+                            <option value="EUR">EUR</option>
+                            <option value="GBP">GBP</option>
+                            <option value="AUD">AUD</option>
+                            <option value="SGD">SGD</option>
+                            <option value="HKD">HKD</option>
+                            <option value="JPY">JPY</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label>Hotel <span class="field-hint">sets the statement descriptor</span></label>
+                    <div class="hotel-picker" id="hotel-picker">
+                        <input type="text" id="hotel-search" placeholder="Search by name or Expedia ID" autocomplete="off">
+                        <div class="hotel-results" id="hotel-results" hidden></div>
+                        <div class="hotel-selected" id="hotel-selected" hidden>
+                            <div class="hotel-selected-main">
+                                <span class="hotel-selected-name" id="hotel-selected-name"></span>
+                                <span class="hotel-selected-meta" id="hotel-selected-meta"></span>
+                            </div>
+                            <button type="button" class="hotel-clear" id="hotel-clear" aria-label="Clear hotel">&times;</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label>Reference <span class="field-hint">e.g. the reservation ID</span></label>
+                    <input type="text" name="reference" id="reference-input" placeholder="e.g. BK-10482" autocomplete="off">
+                    <p class="autofill-hint" id="reference-autofill-hint" hidden>Filled from the hotel's website — edit it if you need something else.</p>
+                </div>
+
+                <div class="field">
+                    <label>Description <span class="field-hint">optional, internal</span></label>
+                    <input type="text" name="description" placeholder="e.g. Hotel booking — 3 nights" autocomplete="off">
+                </div>
+
+                <div class="descriptor-preview" id="descriptor-preview">
+                    <div class="descriptor-head">
+                        <span class="descriptor-label">Statement descriptor</span>
+                        <span class="descriptor-count" id="descriptor-count">0/32</span>
+                    </div>
+                    <code class="descriptor-value" id="descriptor-value">VNP</code>
+                    <p class="descriptor-note">This is what the shopper sees on their card statement. Edit it directly to override.</p>
+                    <p class="descriptor-warn" id="descriptor-warn" hidden></p>
+                    <input type="text" name="descriptor" id="descriptor-input" maxlength="32" placeholder="Auto-generated from the reference" autocomplete="off">
+                </div>
+
+                <details class="advanced">
+                    <summary>Customer details <span class="field-hint">optional</span></summary>
+                    <div class="form-row-2">
+                        <div class="field"><label>Name</label><input type="text" name="customer_name" autocomplete="off"></div>
+                        <div class="field"><label>Email</label><input type="email" name="customer_email" autocomplete="off"></div>
+                    </div>
+                </details>
+
+                <p class="form-error" id="new-error" role="alert" hidden></p>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-ghost" data-close="new">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="new-submit">
+                        <span class="btn-spinner" aria-hidden="true"></span>
+                        <span class="btn-label">Create &amp; checkout</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ============ Bulk create modal ============ -->
+    <div class="modal-backdrop" id="bulk-modal" hidden>
+        <div class="modal modal-wide" role="dialog" aria-modal="true">
+            <button class="modal-close" type="button" data-close="bulk" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </button>
+            <header class="modal-header">
+                <div class="modal-icon accent">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <rect x="2" y="5" width="20" height="14" rx="2.5" stroke="currentColor" stroke-width="1.7"/>
+                        <path d="M2 10h20" stroke="currentColor" stroke-width="1.7"/>
+                    </svg>
+                </div>
+                <h2 class="modal-title">Bulk create payments</h2>
+                <p class="modal-sub">Each row references a hotel by OTA ID and bills under that hotel's descriptor. The file is checked in full before anything is created — card columns are never read.</p>
+            </header>
+
+            <div class="bulk-body">
+                <a class="bulk-template-link" id="bulk-template-link" href="#">
+                    <svg viewBox="0 0 16 16" fill="none">
+                        <path d="M8 2v8M4.5 6.5L8 10l3.5-3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M2.5 11v1.5A1.5 1.5 0 0 0 4 14h8a1.5 1.5 0 0 0 1.5-1.5V11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                    </svg>
+                    Download the template
+                </a>
+
+                <label class="dropzone" id="dropzone">
+                    <input type="file" id="bulk-file" accept=".csv,.xlsx" hidden>
+                    <div class="dropzone-inner">
+                        <svg viewBox="0 0 24 24" fill="none" class="dropzone-icon">
+                            <path d="M12 16V4M7.5 8.5L12 4l4.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M4 16v2.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                        </svg>
+                        <p class="dropzone-text" id="dropzone-text">Drop a CSV or Excel file here</p>
+                        <p class="dropzone-hint" id="dropzone-hint">.csv or .xlsx, up to 500 payments</p>
+                    </div>
+                </label>
+
+                <label class="upsert-toggle" id="autocreate-toggle">
+                    <input type="checkbox" id="autocreate-check" checked>
+                    <span class="checkbox-custom"></span>
+                    <span>Create any hotel the file references but we don't hold yet, using its Portfolio, Property Name, Descriptor and Website columns</span>
+                </label>
+
+                <div class="bulk-result" id="bulk-result" hidden></div>
+
+                <div class="job-progress" id="job-progress" hidden>
+                    <div class="job-bar"><div class="job-bar-fill" id="job-bar-fill"></div></div>
+                    <div class="job-status">
+                        <span id="job-label">Creating payments…</span>
+                        <span class="job-counts" id="job-counts"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" data-close="bulk">Close</button>
+                <button type="button" class="btn btn-ghost" id="bulk-validate" disabled>
+                    <span class="btn-spinner" aria-hidden="true"></span>
+                    <span class="btn-label">Check file</span>
+                </button>
+                <button type="button" class="btn btn-primary" id="bulk-submit" disabled>
+                    <span class="btn-spinner" aria-hidden="true"></span>
+                    <span class="btn-label">Create payments</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ Payment Detail Modal ============ -->
+    <div class="modal-backdrop" id="detail-modal" hidden>
+        <div class="modal modal-wide" role="dialog" aria-modal="true">
+            <button class="modal-close" type="button" data-close="detail" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </button>
+            <div id="detail-body"></div>
+        </div>
+    </div>
+
+    <script src="/assets/sidebar.js"></script>
+    <script src="/assets/table-filters.js"></script>
+    <script src="/assets/bulk.js"></script>
+    <script src="payments.js"></script>
+</body>
+</html>

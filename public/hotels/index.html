@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hotels — VNP &lt;&gt; AIRWALLEX</title>
+    <script>
+        if (!(localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token'))) {
+            window.location.replace('/login');
+        }
+    </script>
+    <link rel="stylesheet" href="/assets/sidebar.css">
+    <link rel="stylesheet" href="/assets/dashboard.css">
+    <link rel="stylesheet" href="/assets/table.css">
+    <link rel="stylesheet" href="/assets/filter-popover.css">
+    <link rel="stylesheet" href="/assets/bulk.css">
+    <link rel="stylesheet" href="hotels.css">
+</head>
+<body>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+    <div class="app-shell">
+        <div data-sidebar-mount data-active="hotels"></div>
+
+        <main class="main-content">
+            <header class="page-header">
+                <div>
+                    <h1 class="page-title">Hotels</h1>
+                    <p class="page-subtitle">Properties and the statement descriptor each one bills under.</p>
+                </div>
+                <div class="page-actions">
+                    <div class="menu-wrap" id="template-wrap">
+                        <button class="btn btn-ghost" type="button" id="template-btn">
+                            <svg viewBox="0 0 16 16" fill="none">
+                                <path d="M8 2v8M4.5 6.5L8 10l3.5-3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M2.5 11v1.5A1.5 1.5 0 0 0 4 14h8a1.5 1.5 0 0 0 1.5-1.5V11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                            Templates
+                            <svg class="menu-chevron" viewBox="0 0 12 12" fill="none">
+                                <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
+                        <div class="menu" id="template-menu" hidden>
+                            <button class="menu-option" type="button" data-download="/api/hotels/templates/import">
+                                Import template
+                                <span>Add new hotels</span>
+                            </button>
+                            <button class="menu-option" type="button" data-download="/api/hotels/templates/update">
+                                Update template
+                                <span>Change existing hotels</span>
+                            </button>
+                            <button class="menu-option" type="button" data-download="/api/hotels/export">
+                                Export all hotels
+                                <span>Current list, update-ready</span>
+                            </button>
+                        </div>
+                    </div>
+                    <button class="btn btn-ghost" type="button" id="bulk-import-btn">Bulk import</button>
+                    <button class="btn btn-ghost" type="button" id="bulk-update-btn">Bulk update</button>
+                    <button class="btn btn-primary" type="button" id="add-hotel-btn">
+                        <svg viewBox="0 0 16 16" fill="none">
+                            <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+                        </svg>
+                        Add hotel
+                    </button>
+                </div>
+            </header>
+
+            <section class="pay-stats" id="hotel-stats">
+                <article class="pay-stat"><p class="pay-stat-label">Hotels</p><p class="pay-stat-value" id="stat-total">—</p></article>
+                <article class="pay-stat"><p class="pay-stat-label">Active</p><p class="pay-stat-value" id="stat-active">—</p></article>
+                <article class="pay-stat"><p class="pay-stat-label">Archived</p><p class="pay-stat-value" id="stat-archived">—</p></article>
+                <article class="pay-stat"><p class="pay-stat-label">Portfolios</p><p class="pay-stat-value" id="stat-portfolios">—</p></article>
+            </section>
+
+            <section class="data-card">
+                <div class="data-card-header">
+                    <div class="filter-tabs" id="status-tabs">
+                        <button class="status-tab active" type="button" data-status="">All</button>
+                        <button class="status-tab" type="button" data-status="active">Active</button>
+                        <button class="status-tab" type="button" data-status="archived">Archived</button>
+                    </div>
+                    <div class="search" id="search">
+                        <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none">
+                            <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8"/>
+                            <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                        </svg>
+                        <span class="search-spinner" aria-hidden="true"></span>
+                        <input type="text" id="search-input" placeholder="Search name, Expedia ID or portfolio" autocomplete="off">
+                    </div>
+                </div>
+
+                <div class="active-filters" id="active-filters" hidden></div>
+
+                <div class="data-table-wrap">
+                    <table class="data-table">
+                        <thead><tr id="hotels-thead-row"></tr></thead>
+                        <tbody id="hotels-tbody"></tbody>
+                    </table>
+                </div>
+                <div class="pagination-bar" id="hotels-pagination" hidden></div>
+            </section>
+        </main>
+    </div>
+
+    <div class="filter-popover" id="filter-popover" hidden></div>
+
+    <!-- ============ Add / edit hotel ============ -->
+    <div class="modal-backdrop" id="hotel-modal" hidden>
+        <div class="modal" role="dialog" aria-modal="true">
+            <button class="modal-close" type="button" data-close="hotel" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </button>
+            <header class="modal-header">
+                <div class="modal-icon accent">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M3 21h18M5 21V7l7-4 7 4v14" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+                        <path d="M9 21v-5h6v5" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+                    </svg>
+                </div>
+                <h2 class="modal-title" id="hotel-modal-title">Add hotel</h2>
+                <p class="modal-sub">The descriptor is what appears on the cardholder's statement for this property.</p>
+            </header>
+
+            <form class="modal-form" id="hotel-form" novalidate>
+                <div class="form-row-2">
+                    <div class="field"><label>Portfolio</label><input type="text" name="portfolio" required autocomplete="off" list="portfolio-list"></div>
+                    <div class="field"><label>Expedia ID</label><input type="text" name="expedia_id" required autocomplete="off"></div>
+                </div>
+                <datalist id="portfolio-list"></datalist>
+                <div class="field"><label>Hotel name</label><input type="text" name="name" required autocomplete="off"></div>
+                <div class="field">
+                    <label>Website <span class="field-hint">auto-fills the payment reference</span></label>
+                    <input type="text" name="website" placeholder="grandriverside.com" autocomplete="off">
+                </div>
+
+                <div class="descriptor-preview">
+                    <div class="descriptor-head">
+                        <span class="descriptor-label">Statement descriptor</span>
+                        <span class="descriptor-count" id="hotel-descriptor-count">0/32</span>
+                    </div>
+                    <code class="descriptor-value" id="hotel-descriptor-value">—</code>
+                    <p class="descriptor-note">Airwallex caps this at 32 characters. A payment reference is appended to it and trimmed to fit.</p>
+                    <input type="text" name="descriptor" id="hotel-descriptor-input" maxlength="32" required placeholder="e.g. GRAND RIVERSIDE" autocomplete="off">
+                </div>
+
+                <div class="field" id="status-field" hidden>
+                    <label>Status</label>
+                    <select name="status">
+                        <option value="active">Active</option>
+                        <option value="archived">Archived</option>
+                    </select>
+                </div>
+
+                <p class="form-error" id="hotel-error" role="alert" hidden></p>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-ghost" data-close="hotel">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="hotel-submit">
+                        <span class="btn-spinner" aria-hidden="true"></span>
+                        <span class="btn-label">Save hotel</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ============ Bulk import / update ============ -->
+    <div class="modal-backdrop" id="bulk-modal" hidden>
+        <div class="modal modal-wide" role="dialog" aria-modal="true">
+            <button class="modal-close" type="button" data-close="bulk" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </button>
+            <header class="modal-header">
+                <div class="modal-icon accent">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M12 16V4M7.5 8.5L12 4l4.5 4.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M4 16v2.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+                    </svg>
+                </div>
+                <h2 class="modal-title" id="bulk-title">Bulk import hotels</h2>
+                <p class="modal-sub" id="bulk-sub">Upload a CSV. Nothing is saved unless every row is valid.</p>
+            </header>
+
+            <div class="bulk-body">
+                <a class="bulk-template-link" id="bulk-template-link" href="#">
+                    <svg viewBox="0 0 16 16" fill="none">
+                        <path d="M8 2v8M4.5 6.5L8 10l3.5-3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M2.5 11v1.5A1.5 1.5 0 0 0 4 14h8a1.5 1.5 0 0 0 1.5-1.5V11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                    </svg>
+                    Download the template
+                </a>
+
+                <label class="dropzone" id="dropzone">
+                    <input type="file" id="bulk-file" accept=".csv,.xlsx" hidden>
+                    <div class="dropzone-inner">
+                        <svg viewBox="0 0 24 24" fill="none" class="dropzone-icon">
+                            <path d="M12 16V4M7.5 8.5L12 4l4.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M4 16v2.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                        </svg>
+                        <p class="dropzone-text" id="dropzone-text">Drop a CSV or Excel file here</p>
+                        <p class="dropzone-hint" id="dropzone-hint">.csv or .xlsx, up to 5000 rows</p>
+                    </div>
+                </label>
+
+                <label class="upsert-toggle" id="upsert-toggle">
+                    <input type="checkbox" id="upsert-check">
+                    <span class="checkbox-custom"></span>
+                    <span>Update hotels that already exist, instead of reporting them as duplicates</span>
+                </label>
+
+                <div class="bulk-result" id="bulk-result" hidden></div>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" data-close="bulk">Close</button>
+                <button type="button" class="btn btn-primary" id="bulk-submit" disabled>
+                    <span class="btn-spinner" aria-hidden="true"></span>
+                    <span class="btn-label">Upload</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/assets/sidebar.js"></script>
+    <script src="/assets/table-filters.js"></script>
+    <script src="/assets/bulk.js"></script>
+    <script src="hotels.js"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VNP &lt;&gt; AIRWALLEX</title>
+    <script>
+        const __token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+        const __userId = localStorage.getItem('auth_user_id') || sessionStorage.getItem('auth_user_id');
+        window.location.replace(__token && __userId ? '/dashboard' : '/login');
+    </script>
+</head>
+<body></body>
+</html>
