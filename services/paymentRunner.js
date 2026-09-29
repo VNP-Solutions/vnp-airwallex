@@ -2,6 +2,7 @@ const Batch = require('../models/Batch');
 const Payment = require('../models/Payment');
 const batchService = require('./batchService');
 const paymentService = require('./paymentService');
+const cardVault = require('./cardVault');
 
 /**
  * Automated payment of a batch through a real browser.
@@ -27,6 +28,23 @@ function sleep(ms) {
 /** Uniform jitter — real people are not metronomes. */
 function jitter(min, max) {
     return Math.floor(min + Math.random() * (max - min));
+}
+
+/**
+ * Run logging.
+ *
+ * A headless run is invisible by definition: the only way to see where a batch
+ * is spending its time, or which step a row died on, is to say so as it
+ * happens. These land in `pm2 logs` and are deliberately one line each so a
+ * 500-row run stays greppable.
+ */
+function log(prefix, message) {
+    console.log(`[pay]${prefix ? ' ' + prefix : ''} ${message}`);
+}
+
+/** A logger bound to one row, so every line identifies which payment it is. */
+function rowLogger(index, total, label) {
+    return (message) => log(`${index}/${total} ${label}`, message);
 }
 
 /**
@@ -233,10 +251,20 @@ async function waitForOutcome(page, timeoutMs) {
     return { where: 'timeout' };
 }
 
-async function payOne(browser, { baseUrl, handoff, card, timeoutMs }) {
+async function payOne(browser, { baseUrl, handoff, card, timeoutMs, say = () => {} }) {
     const page = await browser.newPage();
     try {
         await page.setViewport({ width: jitter(1280, 1440), height: jitter(800, 900) });
+
+        // Surface anything the checkout page itself complains about — a failed
+        // SDK load or a script error would otherwise be silent in headless.
+        page.on('pageerror', (err) => say(`page error: ${err.message}`));
+        page.on('requestfailed', (req) => {
+            const url = req.url();
+            if (/airwallex|checkout/i.test(url)) {
+                say(`request failed: ${url.slice(0, 90)}`);
+            }
+        });
 
         // The checkout page reads its session from sessionStorage, exactly as it
         // does for a human operator — no special automation entry point, so the
@@ -249,6 +277,7 @@ async function payOne(browser, { baseUrl, handoff, card, timeoutMs }) {
             }
         }, handoff);
 
+        say('opening checkout');
         await page.goto(`${baseUrl}/checkout`, {
             waitUntil: 'domcontentloaded',
             timeout: timeoutMs,
@@ -259,34 +288,47 @@ async function payOne(browser, { baseUrl, handoff, card, timeoutMs }) {
         if (!numberField) {
             throw new Error('Card fields never appeared — the checkout did not load');
         }
+        say('card fields ready');
 
         await sleep(jitter(400, 1100));
         await humanType(numberField.frame, numberField.selector, card.pan);
+        say(`card number entered (•••• ${String(card.pan).slice(-4)})`);
 
         const expiryField = await findFrameWith(page, FIELD_SELECTORS.expiry, 10000);
         if (!expiryField) throw new Error('Expiry field not found');
         // The field masks itself as MM / YY, so the four digits are enough.
         await humanType(expiryField.frame, expiryField.selector, card.expiry.replace(/\D/g, ''));
+        say(`expiry entered (${card.expiry})`);
 
         const cvcField = await findFrameWith(page, FIELD_SELECTORS.cvc, 10000);
         if (!cvcField) throw new Error('CVC field not found');
         await humanType(cvcField.frame, cvcField.selector, card.cvv);
+        say('cvc entered');
 
         // Cardholder name is not always rendered.
         const nameField = await findFrameWith(page, FIELD_SELECTORS.name, 3000);
-        if (nameField) await humanType(nameField.frame, nameField.selector, card.name);
+        if (nameField) {
+            await humanType(nameField.frame, nameField.selector, card.name);
+            say(`cardholder entered (${card.name})`);
+        }
 
         await sleep(jitter(500, 1400));
 
         const submitted = await clickPayButton(page);
         if (!submitted) throw new Error('Pay button not found');
+        say('pay clicked — waiting for the result page');
 
         const outcome = await waitForOutcome(page, RESULT_TIMEOUT_MS);
 
         if (outcome.where === 'result') {
+            say(`result page: ${outcome.variant} — "${outcome.title}"`);
             // The result page writes the operator toast after it renders; give
             // it that beat before the tab goes away.
             await sleep(jitter(700, 1400));
+        } else if (outcome.where === 'checkout') {
+            say(`checkout refused it: ${outcome.message || 'error shown, no message'}`);
+        } else {
+            say('no outcome shown before the timeout — falling back to Airwallex');
         }
 
         // Whatever the browser showed is a hint, not a verdict — the caller
@@ -311,6 +353,19 @@ async function runBatch(batchId, { userId, headless = true, baseUrl } = {}) {
         throw err;
     }
 
+    // Fail the whole run up front rather than one row at a time.
+    //
+    // Without the key every stored card is unreadable, so a run would grind
+    // through the entire batch recording the same decryption failure on each
+    // row. One clear message beats several hundred identical ones.
+    if (!cardVault.isConfigured()) {
+        const err = new Error(
+            'CARD_ENCRYPTION_KEY is not set on this server — stored cards cannot be decrypted'
+        );
+        err.statusCode = 409;
+        throw err;
+    }
+
     const batch = await batchService.getBatch(batchId);
     const items = await batchService.getPayableWithCards(batchId);
     if (!items.length) {
@@ -318,6 +373,25 @@ async function runBatch(batchId, { userId, headless = true, baseUrl } = {}) {
         err.statusCode = 409;
         throw err;
     }
+
+    // A key that is set but wrong fails exactly like one that is missing, only
+    // later and per row. If nothing in the batch decrypts, say so now.
+    const usable = items.filter((i) => i.card).length;
+    if (!usable) {
+        const firstReason = (items[0] && items[0].reason) || 'no usable cards';
+        const err = new Error(`No card in this batch could be read — ${firstReason}`);
+        err.statusCode = 409;
+        throw err;
+    }
+    if (usable < items.length) {
+        log('', `warning: ${items.length - usable} of ${items.length} rows have no usable card`);
+    }
+
+    log(
+        '',
+        `batch "${batch.file_name || batchId}" — ${items.length} awaiting payment, ` +
+            `${usable} with a readable card`
+    );
 
     const controller = { cancelled: false };
     activeRuns.set(key, controller);
@@ -338,6 +412,7 @@ async function runBatch(batchId, { userId, headless = true, baseUrl } = {}) {
     // Deliberately not awaited — the caller gets the batch back immediately and
     // polls. Failures are recorded on the batch, never left unhandled.
     execute(batchId, items, { headless, baseUrl, controller }).catch(async (err) => {
+        log('', `run crashed: ${err.message}`);
         console.error('Batch pay run crashed:', err);
         activeRuns.delete(key);
         await Batch.findByIdAndUpdate(batchId, {
@@ -354,6 +429,9 @@ async function runBatch(batchId, { userId, headless = true, baseUrl } = {}) {
 async function execute(batchId, items, { headless, baseUrl, controller }) {
     const puppeteer = require('puppeteer');
     const timeoutMs = 60000;
+    const startedAt = Date.now();
+
+    log('', `run starting — ${items.length} to pay, headless=${headless}, base=${baseUrl}`);
 
     const browser = await puppeteer.launch({
         headless,
@@ -368,19 +446,58 @@ async function execute(batchId, items, { headless, baseUrl, controller }) {
     let processed = 0;
     let succeeded = 0;
     let failed = 0;
+    let skipped = 0;
 
     try {
         for (const item of items) {
-            if (controller.cancelled) break;
+            if (controller.cancelled) {
+                log('', 'run cancelled by operator — stopping after the current row');
+                break;
+            }
 
             const { payment, card, reason } = item;
             const label = payment.description || payment.merchant_order_id;
+            const index = processed + 1;
+            const say = rowLogger(index, items.length, label);
 
             await Batch.findByIdAndUpdate(batchId, { 'pay_run.current': label });
+
+            // Re-read our own record before touching this row.
+            //
+            // The list was captured when the run started. On a resume — or a
+            // long run — a row can have been settled since by an earlier run,
+            // another operator, or a webhook. Paying it again would be a
+            // duplicate charge, so anything no longer awaiting payment is
+            // passed over rather than retried.
+            const current = await Payment.findById(payment._id).select('status').lean();
+            const liveStatus = (current && current.status) || payment.status;
+
+            if (!batchService.PAYABLE_STATUSES.includes(liveStatus)) {
+                processed += 1;
+                if (batchService.SETTLED_STATUSES.includes(liveStatus)) {
+                    succeeded += 1;
+                    say(`already ${liveStatus.toLowerCase()} — skipping, not charging again`);
+                } else {
+                    failed += 1;
+                    await recordFailure(
+                        payment,
+                        `Not payable — the intent is ${liveStatus.toLowerCase().replace(/_/g, ' ')}`
+                    );
+                    say(`is ${liveStatus.toLowerCase()} — cannot be paid, skipping`);
+                }
+                skipped += 1;
+                await Batch.findByIdAndUpdate(batchId, {
+                    'pay_run.processed': processed,
+                    'pay_run.succeeded': succeeded,
+                    'pay_run.failed': failed,
+                }).catch(() => {});
+                continue;
+            }
 
             if (!card) {
                 failed += 1;
                 processed += 1;
+                say(`no usable card: ${reason || 'none stored'}`);
                 await recordFailure(payment, reason || 'No usable card');
                 await Batch.findByIdAndUpdate(batchId, {
                     'pay_run.processed': processed,
@@ -389,6 +506,8 @@ async function execute(batchId, items, { headless, baseUrl, controller }) {
                 });
                 continue;
             }
+
+            say(`starting — ${payment.amount} ${payment.currency}`);
 
             try {
                 // A fresh client_secret per attempt: they are short-lived, and
@@ -403,14 +522,17 @@ async function execute(batchId, items, { headless, baseUrl, controller }) {
                     handoff: checkout,
                     card,
                     timeoutMs,
+                    say,
                 });
 
                 // Airwallex is the authority on the outcome, not the browser —
                 // and capture lags the click, so give it a moment to land
                 // rather than calling a good payment a failure.
+                say('confirming with Airwallex');
                 const outcome = await settleOutcome(payment.payment_intent_id);
                 if (outcome.settled) {
                     succeeded += 1;
+                    say(`PAID — ${outcome.status}`);
                     await batchService.clearCardData(payment._id);
                     await clearStaleError(payment._id);
                 } else {
@@ -422,10 +544,27 @@ async function execute(batchId, items, { headless, baseUrl, controller }) {
                         outcome.generic && seen && seen.message
                             ? seen.message
                             : outcome.reason;
+                    say(`FAILED — ${reason}`);
                     await recordFailure(payment, reason);
                 }
             } catch (err) {
+                // getCheckoutSession re-reads the intent and refuses a 409 when
+                // it is no longer payable. That is a row to pass over, not a
+                // failure to report — it means someone already settled it.
+                if (err.statusCode === 409) {
+                    processed += 1;
+                    skipped += 1;
+                    succeeded += 1;
+                    say(`skipped — ${err.message}`);
+                    await Batch.findByIdAndUpdate(batchId, {
+                        'pay_run.processed': processed,
+                        'pay_run.succeeded': succeeded,
+                        'pay_run.failed': failed,
+                    }).catch(() => {});
+                    continue;
+                }
                 failed += 1;
+                say(`ERROR — ${err.message}`);
                 await recordFailure(payment, err.message);
             }
 
@@ -444,6 +583,15 @@ async function execute(batchId, items, { headless, baseUrl, controller }) {
         await browser.close().catch(() => {});
         activeRuns.delete(String(batchId));
     }
+
+    const mins = ((Date.now() - startedAt) / 60000).toFixed(1);
+    log(
+        '',
+        `run ${controller.cancelled ? 'cancelled' : 'complete'} — ` +
+            `${succeeded} ok, ${failed} failed` +
+            `${skipped ? `, ${skipped} skipped (not attempted)` : ''}` +
+            ` of ${processed}/${items.length} in ${mins}m`
+    );
 
     await Batch.findByIdAndUpdate(batchId, {
         status: 'ready',
