@@ -2,7 +2,7 @@ const crypto = require('crypto');
 
 const Payment = require('../models/Payment');
 const Hotel = require('../models/Hotel');
-const BulkJob = require('../models/BulkJob');
+const Batch = require('../models/Batch');
 // Required for its side effect: listPayments/getPayment populate `created_by`,
 // which needs the User model registered on the mongoose instance. Without this
 // the service works inside the server (userRoutes pulls it in) but throws
@@ -10,8 +10,9 @@ const BulkJob = require('../models/BulkJob');
 require('../models/User');
 const airwallex = require('./airwallexService');
 const hotelService = require('./hotelService');
-const { buildTemplate } = require('./csv');
+const { buildTemplate, toCsv } = require('./csv');
 const { parseTabular } = require('./tabular');
+const cardVault = require('./cardVault');
 
 const MAX_EVENTS = 50;
 
@@ -37,6 +38,82 @@ function generateOrderId() {
     return `vnp_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 }
 
+// Airwallex caps merchant_order_id at 64 characters and rejects an empty one,
+// but does NOT enforce uniqueness — it will happily create a second intent with
+// an order id already in use. Uniqueness is entirely ours to keep.
+const ORDER_ID_MAX_LENGTH = 64;
+
+function normaliseOrderId(value) {
+    return (value == null ? '' : String(value)).trim();
+}
+
+function assertOrderIdShape(orderId) {
+    if (orderId.length > ORDER_ID_MAX_LENGTH) {
+        throw badRequest(
+            `Order ID must be ${ORDER_ID_MAX_LENGTH} characters or fewer (Airwallex limit)`
+        );
+    }
+}
+
+/**
+ * Reject an order id already used by another payment.
+ *
+ * The unique index is the real guarantee; this exists so the operator gets
+ * "already used by …" instead of a raw duplicate-key error.
+ */
+async function assertOrderIdFree(orderId) {
+    const clash = await Payment.findOne({ merchant_order_id: orderId })
+        .select('payment_intent_id description created_at')
+        .lean();
+    if (clash) {
+        const err = new Error(
+            `Order ID "${orderId}" is already used by another payment${
+                clash.description ? ` (${clash.description})` : ''
+            }`
+        );
+        err.statusCode = 409;
+        err.conflict = clash;
+        throw err;
+    }
+}
+
+// Airwallex failure codes are machine-readable; give the common ones wording an
+// operator can act on without opening the API reference.
+const FAILURE_MESSAGES = {
+    fraud_rejected: 'Blocked by risk checks',
+    insufficient_funds: 'Insufficient funds',
+    do_not_honor: 'Declined by the issuer (do not honour)',
+    invalid_card_number: 'Invalid card number',
+    expired_card: 'Card expired',
+    incorrect_cvc: 'Incorrect security code',
+    card_declined: 'Card declined by the issuer',
+    authentication_failed: '3D Secure authentication failed',
+    processing_error: 'Processing error at the issuer',
+    call_issuer: 'Issuer asked the cardholder to call',
+    lost_or_stolen: 'Card reported lost or stolen',
+    pickup_card: 'Card flagged for pickup',
+    withdrawal_count_limit_exceeded: 'Card transaction limit exceeded',
+};
+
+function describeFailure(code) {
+    if (!code) return 'The payment attempt failed';
+    return (
+        FAILURE_MESSAGES[code] ||
+        String(code).replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())
+    );
+}
+
+/**
+ * Keep only the most recent exchanges. Debug value drops off fast and an
+ * unbounded array would grow a document without limit.
+ */
+const MAX_API_LOG_ENTRIES = 25;
+
+function appendApiLog(payment, entries) {
+    if (!entries || !entries.length) return;
+    payment.api_log = [...(payment.api_log || []), ...entries].slice(-MAX_API_LOG_ENTRIES);
+}
+
 function pushEvent(payment, event) {
     payment.events.push(event);
     if (payment.events.length > MAX_EVENTS) {
@@ -60,15 +137,41 @@ function applyIntent(payment, intent, { source = 'sync', eventName, eventId } = 
     if (intent.updated_at) payment.intent_updated_at = new Date(intent.updated_at);
 
     const attempt = intent.latest_payment_attempt;
-    if (attempt && attempt.payment_method) {
-        const method = attempt.payment_method;
-        if (method.type) payment.payment_method_type = method.type;
-        if (method.card) {
-            if (method.card.brand) payment.card_brand = method.card.brand;
-            if (method.card.last4) payment.card_last4 = method.card.last4;
+    if (attempt) {
+        if (attempt.payment_method) {
+            const method = attempt.payment_method;
+            if (method.type) payment.payment_method_type = method.type;
+            if (method.card) {
+                if (method.card.brand) payment.card_brand = method.card.brand;
+                if (method.card.last4) payment.card_last4 = method.card.last4;
+            }
+        }
+
+        // A decline does not move the intent to FAILED — Airwallex leaves it at
+        // REQUIRES_PAYMENT_METHOD so the shopper can retry, and puts the
+        // outcome on the attempt. Mirror it, or a declined payment is
+        // indistinguishable from one nobody has tried.
+        if (attempt.status) payment.last_attempt_status = attempt.status;
+        if (attempt.id && attempt.id !== payment.last_attempt_id) {
+            payment.last_attempt_id = attempt.id;
+            payment.attempt_count = (payment.attempt_count || 0) + 1;
+        }
+
+        if (attempt.status === 'FAILED') {
+            const details = attempt.failure_details || {};
+            payment.last_error = {
+                code: attempt.failure_code || details.code || 'failed',
+                message:
+                    details.message ||
+                    details.description ||
+                    describeFailure(attempt.failure_code),
+                occurred_at: attempt.updated_at ? new Date(attempt.updated_at) : new Date(),
+            };
         }
     }
 
+    // Kept for completeness — Airwallex populates the attempt, not this, on a
+    // decline, but an intent-level error should still surface if one appears.
     if (intent.last_payment_error) {
         payment.last_error = {
             code: intent.last_payment_error.code,
@@ -137,8 +240,12 @@ async function createPayment({
     checkout_mode = 'embedded_elements',
     metadata,
     created_by,
-    bulk_job,
+    batch_name,
     request_id: requestId,
+    merchant_order_id: orderIdInput,
+    card,
+    customer_label,
+    batch,
 }) {
     const numericAmount = roundAmount(amount);
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
@@ -169,7 +276,17 @@ async function createPayment({
         );
     }
 
-    const merchant_order_id = generateOrderId();
+    // Operator-supplied when given; otherwise the description, which carries
+    // the reservation id. Generated only when both are blank.
+    const suppliedOrderId =
+        normaliseOrderId(orderIdInput) || normaliseOrderId(description);
+    if (suppliedOrderId) {
+        assertOrderIdShape(suppliedOrderId);
+        await assertOrderIdFree(suppliedOrderId);
+    }
+    const merchant_order_id = suppliedOrderId || generateOrderId();
+    // Minted before the intent so the return URL can carry it.
+    const publicToken = crypto.randomBytes(16).toString('base64url');
 
     // The idempotency key. Callers pass the reservation id — unique per
     // transaction — so a re-run of the same booking cannot charge twice.
@@ -188,9 +305,13 @@ async function createPayment({
           }
         : undefined;
 
+    // Collects the request/response so the payment carries its own debug trail.
+    const apiLog = [];
+
     let intent;
     try {
         intent = await airwallex.createPaymentIntent({
+        log: apiLog,
         request_id,
         merchant_order_id,
         amount: numericAmount,
@@ -228,7 +349,7 @@ async function createPayment({
                 : {}),
         },
         return_url: `${appBaseUrl()}/payment-result?order=${encodeURIComponent(
-            merchant_order_id
+            publicToken
         )}`,
         });
     } catch (err) {
@@ -246,6 +367,7 @@ async function createPayment({
     }
 
     const payment = new Payment({
+        public_token: publicToken,
         payment_intent_id: intent.id,
         request_id,
         merchant_order_id,
@@ -261,13 +383,27 @@ async function createPayment({
         hotel_expedia_id: hotel ? hotel.expedia_id : undefined,
         hotel_name: hotel ? hotel.name : undefined,
         hotel_portfolio: hotel ? hotel.portfolio : undefined,
-        bulk_job: bulk_job || undefined,
+        batch: batch || undefined,
+        batch_name: batch_name || undefined,
+        customer_label: customer_label || undefined,
+        // Encrypted on the way in; the plaintext never leaves this call.
+        card: card
+            ? {
+                  pan: cardVault.encrypt(card.pan),
+                  expiry: cardVault.encrypt(card.expiry),
+                  cvv: cardVault.encrypt(card.cvv),
+                  last4: card.pan.slice(-4),
+                  brand: cardVault.brandOf(card.pan),
+                  cardholder_name: customer_label || undefined,
+              }
+            : undefined,
         customer: cleanCustomer,
         metadata: metadata || {},
         created_by,
         intent_created_at: intent.created_at ? new Date(intent.created_at) : undefined,
         intent_updated_at: intent.updated_at ? new Date(intent.updated_at) : undefined,
         last_synced_at: new Date(),
+        api_log: apiLog,
         events: [
             {
                 name: 'payment_intent.created',
@@ -290,11 +426,14 @@ async function createPayment({
             amount: payment.amount,
             env: airwallex.env(),
             mode: checkout_mode,
+            // Keys the return page and its status lookup.
+            public_token: publicToken,
+            merchant_order_id: payment.merchant_order_id,
             successUrl: `${appBaseUrl()}/payment-result?order=${encodeURIComponent(
-                merchant_order_id
+                publicToken
             )}&outcome=success`,
             cancelUrl: `${appBaseUrl()}/payment-result?order=${encodeURIComponent(
-                merchant_order_id
+                publicToken
             )}&outcome=cancel`,
         },
     };
@@ -343,6 +482,21 @@ async function listPayments({
     return { items, total, limit: safeLimit, skip: safeSkip };
 }
 
+/**
+ * Look up a payment by its public token — the only identifier the
+ * unauthenticated return page is given. Deliberately does not accept
+ * merchant_order_id: those are operator-chosen and guessable.
+ */
+async function getPaymentByPublicToken(token) {
+    const payment = await Payment.findOne({ public_token: String(token || '') });
+    if (!payment) {
+        const err = new Error('Payment not found');
+        err.statusCode = 404;
+        throw err;
+    }
+    return payment;
+}
+
 async function getPayment(id) {
     const payment = await Payment.findOne({
         $or: [
@@ -363,8 +517,12 @@ async function getPayment(id) {
 /** Pull the current state from Airwallex and persist any change. */
 async function syncPayment(id) {
     const payment = await getPayment(id);
-    const intent = await airwallex.retrievePaymentIntent(payment.payment_intent_id);
+    const apiLog = [];
+    const intent = await airwallex.retrievePaymentIntent(payment.payment_intent_id, {
+        log: apiLog,
+    });
     applyIntent(payment, intent, { source: 'sync' });
+    appendApiLog(payment, apiLog);
     await payment.save();
     return payment;
 }
@@ -384,9 +542,13 @@ const PAYABLE_STATUSES = ['REQUIRES_PAYMENT_METHOD', 'REQUIRES_CUSTOMER_ACTION']
  */
 async function getCheckoutSession(id) {
     const payment = await getPayment(id);
-    const intent = await airwallex.retrievePaymentIntent(payment.payment_intent_id);
+    const apiLog = [];
+    const intent = await airwallex.retrievePaymentIntent(payment.payment_intent_id, {
+        log: apiLog,
+    });
 
     applyIntent(payment, intent, { source: 'sync' });
+    appendApiLog(payment, apiLog);
     await payment.save();
 
     if (!PAYABLE_STATUSES.includes(payment.status)) {
@@ -412,14 +574,15 @@ async function getCheckoutSession(id) {
             amount: payment.amount,
             env: airwallex.env(),
             mode: 'embedded_elements',
+            public_token: payment.public_token,
             merchant_order_id: payment.merchant_order_id,
             descriptor: payment.descriptor,
             description: payment.description,
             successUrl: `${appBaseUrl()}/payment-result?order=${encodeURIComponent(
-                payment.merchant_order_id
+                payment.public_token
             )}&outcome=success`,
             cancelUrl: `${appBaseUrl()}/payment-result?order=${encodeURIComponent(
-                payment.merchant_order_id
+                payment.public_token
             )}&outcome=cancel`,
         },
     };
@@ -434,13 +597,16 @@ async function cancelPayment(id, { reason } = {}) {
         throw err;
     }
 
+    const apiLog = [];
     const intent = await airwallex.cancelPaymentIntent(payment.payment_intent_id, {
         cancellation_reason: reason,
+        log: apiLog,
     });
     applyIntent(payment, intent, {
         source: 'sync',
         eventName: 'payment_intent.cancelled',
     });
+    appendApiLog(payment, apiLog);
     await payment.save();
     return payment;
 }
@@ -495,8 +661,10 @@ async function handleWebhookEvent(event) {
             event_id: event.id,
         });
         try {
-            const intent = await airwallex.retrievePaymentIntent(intentId);
+            const apiLog = [];
+            const intent = await airwallex.retrievePaymentIntent(intentId, { log: apiLog });
             applyIntent(payment, intent, { source: 'webhook' });
+            appendApiLog(payment, apiLog);
         } catch (err) {
             console.error('Failed to re-read intent after webhook:', err.message);
         }
@@ -527,11 +695,17 @@ const FILTERABLE_FIELDS = {
     hotel_name: 'text',
     hotel_expedia_id: 'text',
     hotel_portfolio: 'enum',
+    // The batch's file name, filterable as a column.
+    batch_name: 'enum',
+    // Not surfaced as a column filter — used by the Batches page's
+    // "Pay individually" link to scope the table to one upload.
+    batch: 'text',
 
     amount: 'number',
     captured_amount: 'number',
 
     status: 'enum',
+    last_attempt_status: 'enum',
     currency: 'enum',
     checkout_mode: 'enum',
     payment_method_type: 'enum',
@@ -623,7 +797,24 @@ function buildQuery({ filters, search }) {
             const kind = FILTERABLE_FIELDS[field];
             if (!kind) continue;
             const cond = buildCondition(kind, filter);
-            if (cond !== null) query[field] = cond;
+            if (cond === null) continue;
+
+            // `batch` holds ObjectIds. Mongoose throws a cast error on anything
+            // else, turning a malformed filter into a 500 — match nothing
+            // instead, which is what an unknown batch should do anyway.
+            if (field === 'batch') {
+                const ids = (Array.isArray(filter.value) ? filter.value : [filter.value])
+                    .map((v) => String(v || ''))
+                    .filter((v) => /^[0-9a-fA-F]{24}$/.test(v));
+                if (!ids.length) {
+                    query._id = null; // matches nothing
+                    continue;
+                }
+                query.batch = ids.length === 1 ? ids[0] : { $in: ids };
+                continue;
+            }
+
+            query[field] = cond;
         }
     }
 
@@ -878,7 +1069,7 @@ async function getStats({ period = 'all' } = {}) {
 //  Bulk payment intent creation
 //
 //  Each row is one Airwallex API call, so a few hundred rows outlive any
-//  sensible HTTP timeout. The work runs in the background against a BulkJob
+//  sensible HTTP timeout. The work runs in the background against a Batch
 //  record that the browser polls.
 // ============================================================
 
@@ -886,6 +1077,7 @@ async function getStats({ period = 'all' } = {}) {
 // with no rework. The hotel columns are carried alongside each payment because
 // the same export is the source of truth for both.
 const BULK_PAYMENT_HEADERS = [
+    'Order ID',
     'OTA ID',
     'Portfolio',
     'Property Name',
@@ -893,14 +1085,22 @@ const BULK_PAYMENT_HEADERS = [
     'Website',
     'Reservation ID',
     'Hotel Confirmation Code',
-    'Guest Name',
+    'Customer',
     'Check In',
     'Check Out',
     'Currency',
     'Amount to Charge',
+    'Card Number',
+    'Expiry date',
+    'CVV',
 ];
 
 const BULK_HEADER_TO_FIELD = {
+    // Our own order reference. Optional — generated when blank.
+    'order id': 'merchant_order_id',
+    order_id: 'merchant_order_id',
+    'merchant order id': 'merchant_order_id',
+
     // Hotel key — 'OTA ID' is what the booking export calls it.
     'ota id': 'ota_id',
     'expedia id': 'ota_id',
@@ -919,8 +1119,11 @@ const BULK_HEADER_TO_FIELD = {
     reference: 'reference',
     'hotel confirmation code': 'confirmation_code',
     'confirmation code': 'confirmation_code',
-    'guest name': 'customer_name',
+    // 'Customer' is the payer on the booking — it becomes both the Airwallex
+    // customer name and the cardholder name on the virtual card.
+    customer: 'customer_name',
     'customer name': 'customer_name',
+    // 'Guest name' is the hotel guest, not the payer — deliberately unmapped.
     'guest email': 'customer_email',
     'customer email': 'customer_email',
     'check in': 'check_in',
@@ -929,6 +1132,17 @@ const BULK_HEADER_TO_FIELD = {
     'amount to charge': 'amount',
     amount: 'amount',
     description: 'description',
+
+    // Virtual-card credentials, stored encrypted for the automated run.
+    'card number': 'card_number',
+    'card no': 'card_number',
+    pan: 'card_number',
+    'expiry date': 'card_expiry',
+    expiry: 'card_expiry',
+    'exp date': 'card_expiry',
+    cvv: 'card_cvv',
+    cvc: 'card_cvv',
+    'security code': 'card_cvv',
 };
 
 /**
@@ -939,24 +1153,29 @@ const BULK_HEADER_TO_FIELD = {
  * a compliance scope it is nowhere near. Card data reaches Airwallex only from
  * the shopper's browser, through their iframe — never through us.
  */
-const BULK_IGNORED_HEADERS = [
-    'card number',
-    'card no',
-    'pan',
-    'expiry date',
-    'expiry',
-    'exp date',
-    'cvv',
-    'cvc',
-    'security code',
-];
+// Card columns are now read and stored encrypted (see cardVault). The guest
+// name is read but discarded: the payer, not the guest, is what Airwallex needs.
+const BULK_IGNORED_HEADERS = ['guest name'];
 
-const BULK_PAYMENT_ROW_LIMIT = 500;
+// No cap on rows: a real booking export is however long it is, and creation
+// already runs in the background with per-row progress. The parser's own
+// ceiling in xlsx.js is the only structural guard.
+const BULK_PAYMENT_ROW_LIMIT = Infinity;
+
+/**
+ * Card brands this integration will not charge.
+ *
+ * Amex rows are skipped rather than failed: a booking export is a whole day's
+ * work and rejecting the file over cards that were never going to be charged
+ * would make it unusable. They are reported back so nothing disappears quietly.
+ */
+const BLOCKED_CARD_BRANDS = ['amex'];
 
 function bulkPaymentTemplate() {
     return buildTemplate({
         headers: BULK_PAYMENT_HEADERS,
         example: {
+            'Order ID': 'ORD-100234',
             'OTA ID': '1548104',
             Portfolio: 'HYATT',
             'Property Name': 'Andaz San Diego, by Hyatt',
@@ -964,11 +1183,14 @@ function bulkPaymentTemplate() {
             Website: 'https://www.hyatt.com/andaz/en-US',
             'Reservation ID': '2497667019',
             'Hotel Confirmation Code': '150927RA015397',
-            'Guest Name': 'Syamak Tabrizi',
+            Customer: 'Expedia Group',
             'Check In': '2026-07-02',
             'Check Out': '2026-07-03',
             Currency: 'USD',
             'Amount to Charge': '3.20',
+            'Card Number': '5567174801604015',
+            'Expiry date': '09/29',
+            CVV: '945',
         },
     });
 }
@@ -1005,15 +1227,13 @@ function parseSheetDate(value) {
  * `autoCreateHotels` is on; the caller is told exactly which properties would
  * be created before anything commits.
  */
-async function validateBulkPayments(input, { autoCreateHotels = true } = {}) {
+async function validateBulkPayments(
+    input,
+    { autoCreateHotels = true, skipCardChecks = false } = {}
+) {
     const { headers, rows: rawRows } = parseTabular(input);
     if (!headers.length) throw badRequest('The file is empty');
     if (!rawRows.length) throw badRequest('The file has a header row but no data rows');
-    if (rawRows.length > BULK_PAYMENT_ROW_LIMIT) {
-        throw badRequest(
-            `Too many rows — the limit is ${BULK_PAYMENT_ROW_LIMIT} payments per file`
-        );
-    }
 
     const ignoredColumns = headers.filter((h) =>
         BULK_IGNORED_HEADERS.includes(String(h).trim().toLowerCase())
@@ -1040,6 +1260,21 @@ async function validateBulkPayments(input, { autoCreateHotels = true } = {}) {
     // Matched on description as well as request_id: rows created before the
     // reservation id became the idempotency key carry a uuid there, and would
     // otherwise go unrecognised and be created a second time.
+    // The reservation id doubles as the order id unless the file overrides it —
+    // one reservation, one order reference, entered once.
+    const fileOrderIds = rows
+        .map((r) =>
+            normaliseOrderId(r.merchant_order_id) || normaliseOrderId(r.reservation_id)
+        )
+        .filter(Boolean);
+    const takenOrderIds = new Set(
+        (
+            await Payment.find({ merchant_order_id: { $in: fileOrderIds } })
+                .select('merchant_order_id')
+                .lean()
+        ).map((p) => p.merchant_order_id)
+    );
+
     const existingRows = await Payment.find({
         $or: [
             { request_id: { $in: reservationIds } },
@@ -1061,9 +1296,13 @@ async function validateBulkPayments(input, { autoCreateHotels = true } = {}) {
     const errors = [];
     const prepared = [];
     const duplicates = [];
+    // Rows left out on purpose — an unsupported card brand, not a mistake.
+    const excluded = [];
     // Guards against the same reservation appearing twice in one file, which
     // would otherwise send two intents for one booking.
     const seenReservations = new Map();
+    // Catches the same order id twice inside one file.
+    const seenOrderIds = new Map();
     // Properties in the file that we do not hold yet, keyed by OTA ID so the
     // same hotel repeated across many bookings is only created once.
     const newHotels = new Map();
@@ -1125,33 +1364,9 @@ async function validateBulkPayments(input, { autoCreateHotels = true } = {}) {
             continue;
         }
 
-        const amount = roundAmount(row.amount);
-        if (!Number.isFinite(amount) || amount <= 0) {
-            errors.push({ line, error: `Amount "${row.amount || ''}" is not a positive number` });
-            continue;
-        }
-
-        const currency = (row.currency || '').trim().toUpperCase();
-        if (!/^[A-Z]{3}$/.test(currency)) {
-            errors.push({ line, error: `Currency "${row.currency || ''}" must be a 3-letter ISO code` });
-            continue;
-        }
-
-        // Exactly what the form does: the property's website becomes the
-        // reference, and the property's descriptor becomes the descriptor.
-        // An explicit Reference column still wins, mirroring the form's
-        // "auto-filled unless the operator typed something" rule.
-        const reference =
-            (row.reference || '').trim() ||
-            (hotel ? hotel.website : pendingHotel.website) ||
-            '';
-        const descriptor = airwallex.buildDescriptor({
-            prefix: hotel ? hotel.descriptor : pendingHotel.descriptor,
-        });
-
-        const checkIn = parseSheetDate(row.check_in);
-        const checkOut = parseSheetDate(row.check_out);
-        const confirmation = (row.confirmation_code || '').trim();
+        // Checked before the order id. A row created on an earlier run keys its
+        // order id to its own existing payment, so checking order ids first
+        // reported a re-upload as a clash instead of skipping it.
         const reservationId = (row.reservation_id || '').trim();
 
         if (reservationId) {
@@ -1188,6 +1403,129 @@ async function validateBulkPayments(input, { autoCreateHotels = true } = {}) {
             }
         }
 
+        // Explicit Order ID column wins; otherwise the reservation id is the
+        // order id. Blank both and one is generated at creation time.
+        const orderId =
+            normaliseOrderId(row.merchant_order_id) || normaliseOrderId(row.reservation_id);
+        if (orderId) {
+            if (orderId.length > ORDER_ID_MAX_LENGTH) {
+                errors.push({
+                    line,
+                    error: `Order ID "${orderId}" is longer than ${ORDER_ID_MAX_LENGTH} characters`,
+                });
+                continue;
+            }
+            if (seenOrderIds.has(orderId)) {
+                errors.push({
+                    line,
+                    error: `Order ID ${orderId} appears twice (also on line ${seenOrderIds.get(
+                        orderId
+                    )})`,
+                });
+                continue;
+            }
+            if (takenOrderIds.has(orderId)) {
+                errors.push({
+                    line,
+                    error: `Order ID ${orderId} is already used by another payment`,
+                });
+                continue;
+            }
+            seenOrderIds.set(orderId, line);
+        }
+
+        const amount = roundAmount(row.amount);
+        if (!Number.isFinite(amount) || amount <= 0) {
+            errors.push({ line, error: `Amount "${row.amount || ''}" is not a positive number` });
+            continue;
+        }
+
+        const currency = (row.currency || '').trim().toUpperCase();
+        if (!/^[A-Z]{3}$/.test(currency)) {
+            errors.push({ line, error: `Currency "${row.currency || ''}" must be a 3-letter ISO code` });
+            continue;
+        }
+
+        // Exactly what the form does: the property's website becomes the
+        // reference, and the property's descriptor becomes the descriptor.
+        // An explicit Reference column still wins, mirroring the form's
+        // "auto-filled unless the operator typed something" rule.
+        const reference =
+            (row.reference || '').trim() ||
+            (hotel ? hotel.website : pendingHotel.website) ||
+            '';
+        const descriptor = airwallex.buildDescriptor({
+            prefix: hotel ? hotel.descriptor : pendingHotel.descriptor,
+        });
+
+        // Card details are optional at validate time — a batch without them can
+        // still be paid by hand — but a malformed one is rejected rather than
+        // discovered mid-run by the automation.
+        let card = null;
+        const rawPan = cardVault.normalisePan(row.card_number);
+        if (rawPan || row.card_expiry || row.card_cvv) {
+            if (!cardVault.isConfigured()) {
+                errors.push({
+                    line,
+                    error: 'CARD_ENCRYPTION_KEY is not set — card details cannot be stored',
+                });
+                continue;
+            }
+
+            // Checked before the checksum: an unsupported brand is a skip, and
+            // reporting a malformed number on a card we would not charge anyway
+            // is noise.
+            const brand = cardVault.brandOf(rawPan);
+            if (BLOCKED_CARD_BRANDS.includes(brand)) {
+                excluded.push({
+                    line,
+                    reason: `${brand === 'amex' ? 'American Express' : brand} is not supported`,
+                    brand,
+                    card_last4: rawPan.slice(-4),
+                    ota_id: otaId,
+                    reservation_id: (row.reservation_id || '').trim() || undefined,
+                });
+                continue;
+            }
+            // Skippable: a closed-loop virtual card scheme may not use Luhn at
+            // all. Off by default, because the check earns its keep catching
+            // mistyped digits before a run wastes a real attempt.
+            if (!skipCardChecks && !cardVault.luhnValid(rawPan)) {
+                errors.push({
+                    line,
+                    error: `Card ending ${rawPan.slice(-4) || '????'}: ${cardVault.describePanProblem(
+                        rawPan
+                    )}`,
+                });
+                continue;
+            }
+            if (!rawPan) {
+                errors.push({ line, error: 'Card number is missing' });
+                continue;
+            }
+            const expiry = cardVault.normaliseExpiry(row.card_expiry);
+            if (!expiry) {
+                errors.push({
+                    line,
+                    error: `Expiry "${row.card_expiry || ''}" is not a readable date`,
+                });
+                continue;
+            }
+            if (cardVault.expiryPassed(expiry)) {
+                errors.push({ line, error: `Card expired ${expiry}` });
+                continue;
+            }
+            const cvv = cardVault.normaliseCvv(row.card_cvv);
+            if (cvv.length < 3 || cvv.length > 4) {
+                errors.push({ line, error: 'CVV must be 3 or 4 digits' });
+                continue;
+            }
+            card = { pan: rawPan, expiry, cvv };
+        }
+
+        const checkIn = parseSheetDate(row.check_in);
+        const checkOut = parseSheetDate(row.check_out);
+        const confirmation = (row.confirmation_code || '').trim();
         // The reservation id is how a transaction gets identified internally,
         // so it is the description. An explicit Description column overrides it.
         const description = (row.description || '').trim() || reservationId;
@@ -1198,6 +1536,7 @@ async function validateBulkPayments(input, { autoCreateHotels = true } = {}) {
             // Reservation id is unique per transaction, so it is the
             // idempotency key sent to Airwallex.
             request_id: reservationId || undefined,
+            merchant_order_id: orderId || undefined,
             hotel_id: hotel ? hotel._id : undefined,
             hotel_name: hotel ? hotel.name : pendingHotel.name,
             hotel_is_new: !hotel,
@@ -1210,6 +1549,11 @@ async function validateBulkPayments(input, { autoCreateHotels = true } = {}) {
                 name: (row.customer_name || '').trim() || undefined,
                 email: (row.customer_email || '').trim() || undefined,
             },
+            // Held separately from `customer` because it is also the name that
+            // goes on the card during the automated run.
+            customer_label: (row.customer_name || '').trim() || undefined,
+            card,
+            has_card: !!card,
             // Booking detail is kept as metadata rather than squeezed into the
             // description, so it stays queryable on the intent.
             metadata: {
@@ -1232,8 +1576,18 @@ async function validateBulkPayments(input, { autoCreateHotels = true } = {}) {
         ready: prepared.length,
         // Not errors: these rows were created by an earlier run and are skipped.
         duplicates: duplicates.sort((a, b) => a.line - b.line),
+        // Not errors either: rows deliberately left out, e.g. an unsupported card.
+        excluded: excluded.sort((a, b) => a.line - b.line),
         errors: errors.sort((a, b) => a.line - b.line),
-        preview: prepared.slice(0, 10),
+        // Only the last four reach the client — the preview is for eyeballing a
+        // file, not for reading card numbers back out.
+        preview: prepared.slice(0, 10).map((row) => ({
+            ...row,
+            card: undefined,
+            card_last4: row.card ? row.card.pan.slice(-4) : undefined,
+            card_expiry: row.card ? row.card.expiry : undefined,
+        })),
+        cards_present: prepared.filter((r) => r.has_card).length,
         totals: Object.entries(totals).map(([currency, amount]) => ({ currency, amount })),
         ignored_columns: ignoredColumns,
         hotels_to_create: [...newHotels.values()].map((h) => ({
@@ -1250,13 +1604,20 @@ async function validateBulkPayments(input, { autoCreateHotels = true } = {}) {
 
 /**
  * Validate, then create every intent in the background.
- * Returns the job immediately; poll getBulkJob() for progress.
+ * Returns the batch immediately; poll getBatch() for progress.
  */
 async function startBulkPayments(
     input,
-    { userId, checkout_mode = 'embedded_elements', autoCreateHotels = true } = {}
+    {
+        userId,
+        checkout_mode = 'embedded_elements',
+        autoCreateHotels = true,
+        skipCardChecks = false,
+        fileName = 'upload.csv',
+        fileSize = 0,
+    } = {}
 ) {
-    const validation = await validateBulkPayments(input, { autoCreateHotels });
+    const validation = await validateBulkPayments(input, { autoCreateHotels, skipCardChecks });
     if (!validation.valid) {
         const err = new Error('The file has errors — fix them and upload again');
         err.statusCode = 400;
@@ -1306,27 +1667,35 @@ async function startBulkPayments(
         const err = new Error(
             validation.duplicates.length
                 ? `Every row was already created on an earlier run — nothing to do`
-                : 'There is nothing to create in that file'
+                : validation.excluded.length
+                  ? 'Every row was excluded — no supported cards in that file'
+                  : 'There is nothing to create in that file'
         );
         err.statusCode = 409;
         throw err;
     }
 
-    const job = await BulkJob.create({
-        type: 'payments_create',
-        status: 'queued',
-        total: validation.prepared.length,
+    const job = await Batch.create({
+        file_name: fileName,
+        file_size: fileSize,
+        status: 'creating',
+        total_rows: validation.prepared.length,
         hotels_created: hotelsCreated,
         created_by: userId,
+        started_at: new Date(),
     });
 
     // Deliberately not awaited: the HTTP response returns the job id now and
     // the browser polls. Failures are recorded on the job, never thrown into
     // an unhandled rejection.
-    runBulkPayments(job._id, validation.prepared, { userId, checkout_mode }).catch(
+    runBulkPayments(job._id, validation.prepared, {
+        userId,
+        checkout_mode,
+        fileLabel: fileName,
+    }).catch(
         async (err) => {
             console.error('Bulk payment job crashed:', err);
-            await BulkJob.findByIdAndUpdate(job._id, {
+            await Batch.findByIdAndUpdate(job._id, {
                 status: 'failed',
                 error: err.message,
                 finished_at: new Date(),
@@ -1337,11 +1706,8 @@ async function startBulkPayments(
     return job;
 }
 
-async function runBulkPayments(jobId, prepared, { userId, checkout_mode }) {
-    await BulkJob.findByIdAndUpdate(jobId, {
-        status: 'running',
-        started_at: new Date(),
-    });
+async function runBulkPayments(jobId, prepared, { userId, checkout_mode, fileLabel }) {
+    await Batch.findByIdAndUpdate(jobId, { status: 'creating', started_at: new Date() });
 
     const results = [];
     let succeeded = 0;
@@ -1360,16 +1726,20 @@ async function runBulkPayments(jobId, prepared, { userId, checkout_mode }) {
                 customer: row.customer,
                 metadata: row.metadata,
                 request_id: row.request_id,
+                merchant_order_id: row.merchant_order_id,
                 checkout_mode,
                 created_by: userId,
-                bulk_job: jobId,
+                batch: jobId,
+                batch_name: fileLabel,
+                card: row.card,
+                customer_label: row.customer_label,
             });
 
             results.push({
                 line: row.line,
                 ok: true,
-                expedia_id: row.ota_id,
-                reference: row.reference,
+                ota_id: row.ota_id,
+                reservation_id: row.request_id,
                 payment_intent_id: payment.payment_intent_id,
                 merchant_order_id: payment.merchant_order_id,
             });
@@ -1378,8 +1748,8 @@ async function runBulkPayments(jobId, prepared, { userId, checkout_mode }) {
             results.push({
                 line: row.line,
                 ok: false,
-                expedia_id: row.ota_id,
-                reference: row.reference,
+                ota_id: row.ota_id,
+                reservation_id: row.request_id,
                 error: err.message,
             });
             failed += 1;
@@ -1387,7 +1757,7 @@ async function runBulkPayments(jobId, prepared, { userId, checkout_mode }) {
 
         // Persist progress as we go so the poller shows real movement and a
         // crash leaves behind an accurate partial record.
-        await BulkJob.findByIdAndUpdate(jobId, {
+        await Batch.findByIdAndUpdate(jobId, {
             processed: results.length,
             succeeded,
             failed,
@@ -1395,8 +1765,8 @@ async function runBulkPayments(jobId, prepared, { userId, checkout_mode }) {
         }).catch(() => {});
     }
 
-    await BulkJob.findByIdAndUpdate(jobId, {
-        status: 'completed',
+    await Batch.findByIdAndUpdate(jobId, {
+        status: 'ready',
         processed: results.length,
         succeeded,
         failed,
@@ -1405,18 +1775,18 @@ async function runBulkPayments(jobId, prepared, { userId, checkout_mode }) {
     });
 }
 
-async function getBulkJob(id) {
-    const job = await BulkJob.findById(id).catch(() => null);
+async function getBatch(id) {
+    const job = await Batch.findById(id).catch(() => null);
     if (!job) {
-        const err = new Error('Job not found');
+        const err = new Error('Batch not found');
         err.statusCode = 404;
         throw err;
     }
     return job;
 }
 
-async function listBulkJobs({ limit = 10 } = {}) {
-    const items = await BulkJob.find({ type: 'payments_create' })
+async function listBatches({ limit = 10 } = {}) {
+    const items = await Batch.find({})
         .sort({ created_at: -1 })
         .limit(Math.min(Number(limit) || 10, 50))
         .select('-results')
@@ -1430,9 +1800,9 @@ async function listBulkJobs({ limit = 10 } = {}) {
  * Jobs run in-process, so a deploy or crash abandons anything running. Without
  * this sweep those rows would poll forever against a job nothing is advancing.
  */
-async function failStaleBulkJobs() {
-    const result = await BulkJob.updateMany(
-        { status: { $in: ['queued', 'running'] } },
+async function failStaleBatches() {
+    const result = await Batch.updateMany(
+        { status: { $in: ['creating', 'paying'] } },
         {
             $set: {
                 status: 'failed',
@@ -1442,13 +1812,211 @@ async function failStaleBulkJobs() {
         }
     );
     if (result.modifiedCount) {
-        console.warn(`Marked ${result.modifiedCount} interrupted bulk job(s) as failed`);
+        console.warn(`Marked ${result.modifiedCount} interrupted batch(es) as failed`);
     }
     return result.modifiedCount || 0;
 }
 
+
+// ============================================================
+//  Delete + export
+// ============================================================
+
+/** Statuses representing money that actually moved. */
+const SETTLED_STATUSES = ['SUCCEEDED', 'REQUIRES_CAPTURE'];
+
+/**
+ * Delete local payment records.
+ *
+ * Deleting is for cleaning up a bad import, so unpaid intents are cancelled at
+ * Airwallex first — otherwise the local row disappears while a payable intent
+ * lives on, and a shopper with the old link could still be charged for
+ * something we no longer have any record of.
+ *
+ * A payment that took money is refused unless `force` is set: the local record
+ * is the only durable account of that charge once Airwallex's retention lapses.
+ */
+async function deletePayments(ids, { force = false } = {}) {
+    const list = (Array.isArray(ids) ? ids : [ids]).filter(Boolean).map(String);
+    if (!list.length) throw badRequest('No payments selected');
+    // No cap: a batch delete passes every payment in the file, which can be
+    // thousands. Airwallex cancels are sequential, so a large one simply takes
+    // a while rather than being refused.
+
+    const payments = await Payment.find({
+        $or: [
+            { payment_intent_id: { $in: list } },
+            { merchant_order_id: { $in: list } },
+            {
+                _id: {
+                    $in: list.filter((id) => /^[0-9a-fA-F]{24}$/.test(id)),
+                },
+            },
+        ],
+    });
+
+    const results = [];
+    const deletable = [];
+
+    for (const payment of payments) {
+        if (SETTLED_STATUSES.includes(payment.status) && !force) {
+            results.push({
+                payment_intent_id: payment.payment_intent_id,
+                deleted: false,
+                error: `${payment.status.toLowerCase()} — money moved; deleting would destroy the only durable record`,
+            });
+            continue;
+        }
+        deletable.push(payment);
+    }
+
+    for (const payment of deletable) {
+        let cancelled = false;
+        // Best effort: a cancel that fails must not block the cleanup, but the
+        // outcome is reported so an orphaned intent is visible.
+        if (!SETTLED_STATUSES.includes(payment.status) && payment.status !== 'CANCELLED') {
+            try {
+                await airwallex.cancelPaymentIntent(payment.payment_intent_id, {
+                    cancellation_reason: 'abandoned',
+                });
+                cancelled = true;
+            } catch (err) {
+                results.push({
+                    payment_intent_id: payment.payment_intent_id,
+                    deleted: true,
+                    cancelled: false,
+                    warning: `Deleted locally, but the Airwallex intent could not be cancelled: ${err.message}`,
+                });
+            }
+        }
+
+        await Payment.deleteOne({ _id: payment._id });
+        if (!results.some((r) => r.payment_intent_id === payment.payment_intent_id)) {
+            results.push({
+                payment_intent_id: payment.payment_intent_id,
+                deleted: true,
+                cancelled,
+            });
+        }
+    }
+
+    const missing = list.filter(
+        (id) =>
+            !payments.some(
+                (p) =>
+                    p.payment_intent_id === id ||
+                    p.merchant_order_id === id ||
+                    String(p._id) === id
+            )
+    );
+
+    return {
+        requested: list.length,
+        deleted: results.filter((r) => r.deleted).length,
+        refused: results.filter((r) => !r.deleted).length,
+        not_found: missing.length,
+        results,
+    };
+}
+
+// Column order for the exported report.
+const EXPORT_HEADERS = [
+    'Payment Intent ID',
+    'Order ID',
+    'Status',
+    'Attempt Status',
+    'Failure Code',
+    'Failure Reason',
+    'Amount',
+    'Currency',
+    'Captured',
+    'Descriptor',
+    'Reference',
+    'Description',
+    'OTA ID',
+    'Hotel',
+    'Portfolio',
+    'Customer Name',
+    'Customer Email',
+    'Card Brand',
+    'Card Last4',
+    'Batch',
+    'Created',
+    'Last Synced',
+];
+
+function toExportRow(p) {
+    return {
+        'Payment Intent ID': p.payment_intent_id,
+        'Order ID': p.merchant_order_id,
+        Status: p.status,
+        'Attempt Status': p.last_attempt_status || '',
+        'Failure Code': (p.last_error && p.last_error.code) || '',
+        'Failure Reason': (p.last_error && p.last_error.message) || '',
+        Amount: p.amount,
+        Currency: p.currency,
+        Captured: p.captured_amount || 0,
+        Descriptor: p.descriptor || '',
+        Reference: p.reference || '',
+        Description: p.description || '',
+        'OTA ID': p.hotel_expedia_id || '',
+        Hotel: p.hotel_name || '',
+        Portfolio: p.hotel_portfolio || '',
+        'Customer Name': (p.customer && p.customer.name) || '',
+        'Customer Email': (p.customer && p.customer.email) || '',
+        'Card Brand': p.card_brand || '',
+        'Card Last4': p.card_last4 || '',
+        Batch: p.batch_name || '',
+        Created: p.created_at ? new Date(p.created_at).toISOString() : '',
+        'Last Synced': p.last_synced_at ? new Date(p.last_synced_at).toISOString() : '',
+    };
+}
+
+/**
+ * Export payments as CSV — either an explicit selection, or everything matching
+ * the caller's current filters. Exporting the filtered set rather than the
+ * visible page is the point: the table shows 25 rows, the report should not.
+ */
+async function exportPayments({ ids, filters, search, sort } = {}) {
+    let query;
+    if (Array.isArray(ids) && ids.length) {
+
+        query = {
+            $or: [
+                { payment_intent_id: { $in: ids } },
+                {
+                    _id: {
+                        $in: ids.filter((id) => /^[0-9a-fA-F]{24}$/.test(id)),
+                    },
+                },
+            ],
+        };
+    } else {
+        query = buildQuery({ filters, search });
+    }
+
+    let sortSpec = { created_at: -1 };
+    if (sort && sort.key && SORTABLE_FIELDS.has(sort.key)) {
+        sortSpec = { [sort.key]: sort.dir === 'asc' ? 1 : -1 };
+    }
+
+    const rows = await Payment.find(query).sort(sortSpec).select('-events -api_log').lean();
+    return {
+        csv: toCsv({ headers: EXPORT_HEADERS, rows: rows.map(toExportRow) }),
+        count: rows.length,
+    };
+}
+
 module.exports = {
     FILTERABLE_FIELDS,
+    BLOCKED_CARD_BRANDS,
+    ORDER_ID_MAX_LENGTH,
+    getPaymentByPublicToken,
+    assertOrderIdFree,
+    normaliseOrderId,
+    deletePayments,
+    exportPayments,
+    EXPORT_HEADERS,
     PAYABLE_STATUSES,
     getCheckoutSession,
     BULK_PAYMENT_HEADERS,
@@ -1456,9 +2024,9 @@ module.exports = {
     bulkPaymentTemplate,
     validateBulkPayments,
     startBulkPayments,
-    getBulkJob,
-    listBulkJobs,
-    failStaleBulkJobs,
+    getBatch,
+    listBatches,
+    failStaleBatches,
     createPayment,
     queryPayments,
     distinctValues,

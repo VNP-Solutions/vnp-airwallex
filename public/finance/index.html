@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finance — VNP &lt;&gt; AIRWALLEX</title>
+    <script>
+        if (!(localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token'))) {
+            window.location.replace('/login');
+        }
+    </script>
+    <link rel="stylesheet" href="/assets/sidebar.css">
+    <link rel="stylesheet" href="/assets/dashboard.css">
+    <link rel="stylesheet" href="/assets/table.css">
+    <link rel="stylesheet" href="/assets/bulk.css">
+    <link rel="stylesheet" href="finance.css">
+</head>
+<body>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+    <div class="app-shell">
+        <div data-sidebar-mount data-active="finance"></div>
+
+        <main class="main-content">
+            <header class="page-header">
+                <div>
+                    <h1 class="page-title">Finance</h1>
+                    <p class="page-subtitle">Wallet balances, settlements and reports, read live from Airwallex.</p>
+                </div>
+                <div class="page-actions">
+                    <button class="btn btn-ghost" type="button" id="refresh-btn">
+                        <svg viewBox="0 0 16 16" fill="none">
+                            <path d="M14 8A6 6 0 1 1 8 2c1.9 0 3.6.9 4.7 2.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            <path d="M13 1.5V5h-3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        Refresh
+                    </button>
+                </div>
+            </header>
+
+            <div class="finance-tabs" id="finance-tabs" role="tablist">
+                <button class="finance-tab active" type="button" data-tab="balances" role="tab">Balances</button>
+                <button class="finance-tab" type="button" data-tab="settlements" role="tab">Settlements</button>
+                <button class="finance-tab" type="button" data-tab="transactions" role="tab">Transactions</button>
+                <button class="finance-tab" type="button" data-tab="reports" role="tab">Reports</button>
+            </div>
+
+            <!-- ============ Balances ============ -->
+            <section class="tab-panel" data-panel="balances">
+                <div class="panel-controls">
+                    <label class="upsert-toggle">
+                        <input type="checkbox" id="include-zero">
+                        <span class="checkbox-custom"></span>
+                        <span>Show currencies with no balance</span>
+                    </label>
+                    <span class="panel-meta" id="balances-meta"></span>
+                </div>
+                <div class="balance-grid" id="balance-grid"></div>
+            </section>
+
+            <!-- ============ Settlements ============ -->
+            <section class="tab-panel" data-panel="settlements" hidden>
+                <div class="panel-controls">
+                    <div class="field-inline">
+                        <label for="settle-from">From</label>
+                        <input type="date" id="settle-from">
+                    </div>
+                    <div class="field-inline">
+                        <label for="settle-to">To</label>
+                        <input type="date" id="settle-to">
+                    </div>
+                    <div class="field-inline">
+                        <label for="settle-currency">Currency</label>
+                        <select id="settle-currency"><option value="">All</option></select>
+                    </div>
+                    <button class="btn btn-ghost" type="button" id="settle-apply">Apply</button>
+                    <span class="panel-meta" id="settle-meta"></span>
+                </div>
+
+                <div class="settle-totals" id="settle-totals" hidden></div>
+
+                <div class="data-card">
+                    <div class="data-table-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-primary">Batch</th>
+                                    <th>Currency</th>
+                                    <th>Entries</th>
+                                    <th>Gross</th>
+                                    <th>Fees</th>
+                                    <th>Net</th>
+                                    <th>Status</th>
+                                    <th>Settled</th>
+                                </tr>
+                            </thead>
+                            <tbody id="settle-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ Transactions ============ -->
+            <section class="tab-panel" data-panel="transactions" hidden>
+                <div class="panel-controls">
+                    <div class="field-inline">
+                        <label for="tx-currency">Currency</label>
+                        <select id="tx-currency"><option value="">All</option></select>
+                    </div>
+                    <div class="field-inline">
+                        <label for="tx-status">Status</label>
+                        <select id="tx-status">
+                            <option value="">All</option>
+                            <option value="SETTLED">Settled</option>
+                            <option value="PENDING">Pending</option>
+                            <option value="CANCELLED">Cancelled</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-ghost" type="button" id="tx-apply">Apply</button>
+                    <button class="btn btn-ghost" type="button" id="tx-export">
+                        <svg viewBox="0 0 16 16" fill="none">
+                            <path d="M8 2v8M4.5 6.5L8 10l3.5-3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M2.5 11v1.5A1.5 1.5 0 0 0 4 14h8a1.5 1.5 0 0 0 1.5-1.5V11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                        </svg>
+                        Export CSV
+                    </button>
+                    <span class="panel-meta" id="tx-meta"></span>
+                </div>
+
+                <div class="data-card">
+                    <div class="data-table-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-primary">Type</th>
+                                    <th>Batch</th>
+                                    <th>Currency</th>
+                                    <th>Amount</th>
+                                    <th>Fee</th>
+                                    <th>Net</th>
+                                    <th>Status</th>
+                                    <th>Settled</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tx-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ Reports ============ -->
+            <section class="tab-panel" data-panel="reports" hidden>
+                <div class="report-form">
+                    <h2 class="report-form-title">Generate a report</h2>
+                    <p class="report-form-sub">Airwallex builds the file, then it downloads here. Formats differ per report.</p>
+                    <div class="report-grid">
+                        <div class="field">
+                            <label for="report-type">Report</label>
+                            <select id="report-type"></select>
+                            <p class="field-note" id="report-desc"></p>
+                        </div>
+                        <div class="field">
+                            <label for="report-format">Format</label>
+                            <select id="report-format"></select>
+                        </div>
+                        <div class="field">
+                            <label for="report-from">From</label>
+                            <input type="date" id="report-from">
+                        </div>
+                        <div class="field">
+                            <label for="report-to">To</label>
+                            <input type="date" id="report-to">
+                        </div>
+                        <div class="field" id="report-currency-field" hidden>
+                            <label for="report-currencies">Currencies</label>
+                            <select id="report-currencies" multiple size="4"></select>
+                        </div>
+                    </div>
+                    <p class="form-error" id="report-error" role="alert" hidden></p>
+                    <button class="btn btn-primary" type="button" id="report-generate">
+                        <span class="btn-spinner" aria-hidden="true"></span>
+                        <span class="btn-label">Generate</span>
+                    </button>
+                </div>
+
+                <div class="data-card">
+                    <div class="data-card-header">
+                        <h2 class="report-list-title">Generated reports</h2>
+                        <span class="panel-meta" id="reports-meta"></span>
+                    </div>
+                    <div class="data-table-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-primary">Report</th>
+                                    <th>Period</th>
+                                    <th>Format</th>
+                                    <th>Status</th>
+                                    <th class="col-actions">File</th>
+                                </tr>
+                            </thead>
+                            <tbody id="reports-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/assets/sidebar.js"></script>
+    <script src="/assets/bulk.js"></script>
+    <script src="finance.js"></script>
+</body>
+</html>

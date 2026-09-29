@@ -1,0 +1,154 @@
+/* Batches page — uploaded files, their intents, and automated pay runs. */
+
+.batch-list {
+    display: grid;
+    gap: 14px;
+}
+
+.batch-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 18px 20px;
+    transition: border-color 0.2s, background 0.2s;
+}
+
+.batch-card:hover {
+    background: rgba(255, 255, 255, 0.045);
+    border-color: rgba(255, 255, 255, 0.13);
+}
+
+.batch-card.is-running {
+    border-color: rgba(255, 210, 0, 0.35);
+    background: rgba(255, 210, 0, 0.04);
+}
+
+.batch-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 14px;
+}
+
+.batch-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.batch-name {
+    font-size: 14.5px;
+    font-weight: 600;
+    color: #FFFFFF;
+    word-break: break-all;
+}
+
+.batch-meta {
+    font-size: 11.5px;
+    color: rgba(255, 255, 255, 0.4);
+    white-space: nowrap;
+}
+
+/* ============ Stats strip ============ */
+.batch-stats {
+    display: flex;
+    gap: 26px;
+    flex-wrap: wrap;
+    padding: 12px 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    margin-bottom: 14px;
+}
+
+.batch-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.batch-stat .k {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.9px;
+    color: rgba(255, 255, 255, 0.4);
+    font-weight: 600;
+}
+
+.batch-stat .v {
+    font-size: 17px;
+    font-weight: 700;
+    color: #FFFFFF;
+    font-variant-numeric: tabular-nums;
+}
+
+.batch-stat .v.ok { color: #4CD295; }
+
+/* ============ Progress ============ */
+.batch-progress { margin-bottom: 14px; }
+
+.progress-bar {
+    height: 7px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #FFD200, #FFDC2E);
+    border-radius: 4px;
+    transition: width 0.4s ease-out;
+}
+
+.progress-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.progress-counts { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.progress-counts .ok { color: #4CD295; }
+.progress-counts .bad { color: #FF6B6B; }
+
+.progress-current {
+    font-size: 11.5px;
+    color: #FFD200;
+    margin-top: 6px;
+}
+
+.progress-error {
+    font-size: 11.5px;
+    color: #FF9B9B;
+    margin-top: 6px;
+}
+
+/* ============ Actions ============ */
+.batch-actions {
+    display: flex;
+    gap: 9px;
+    flex-wrap: wrap;
+}
+
+.batch-actions .btn { display: inline-flex; }
+.batch-delete { margin-left: auto; }
+
+/* ============ Modals ============ */
+.run-body { margin-bottom: 18px; }
+
+.run-warning {
+    margin-top: 14px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: rgba(255, 255, 255, 0.6);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+
+.run-warning strong { color: #FFB94B; }

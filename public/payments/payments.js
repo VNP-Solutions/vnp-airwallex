@@ -1,6 +1,6 @@
 (() => {
     // ============== Constants ==============
-    const PAGE_SIZE = 25;
+    const PAGE_SIZE_KEY = 'payments_page_size';
     const CHECKOUT_HANDOFF_KEY = 'awx_checkout_handoff';
 
     // Airwallex statuses are uppercase; map them onto the shared pill variants.
@@ -35,6 +35,7 @@
         { key: 'currency', label: 'Currency', filter: { kind: 'enum' } },
         { key: 'status', label: 'Status', filter: { kind: 'enum' } },
         { key: 'descriptor', label: 'Descriptor', filter: { kind: 'text' } },
+        { key: 'batch_name', label: 'Batch', filter: { kind: 'enum' } },
         { key: 'created_at', label: 'Created', filter: { kind: 'date' } },
         { key: 'actions', label: '', className: 'col-actions' },
     ];
@@ -72,6 +73,8 @@
     const hotelSelectedMeta = document.getElementById('hotel-selected-meta');
     const hotelClear = document.getElementById('hotel-clear');
     const referenceHint = document.getElementById('reference-autofill-hint');
+    const orderIdInput = document.getElementById('order-id-input');
+    const orderIdStatus = document.getElementById('order-id-status');
 
     const bulkModal = document.getElementById('bulk-modal');
     const bulkResult = document.getElementById('bulk-result');
@@ -79,6 +82,22 @@
     const bulkSubmitBtn = document.getElementById('bulk-submit');
     const bulkTemplateLink = document.getElementById('bulk-template-link');
     const autoCreateCheck = document.getElementById('autocreate-check');
+    const pageSizeSelect = document.getElementById('page-size-select');
+    const paginationInfo = document.getElementById('pagination-info');
+    const paginationControls = document.getElementById('pagination-controls');
+    const exportWrap = document.getElementById('export-wrap');
+    const exportBtn = document.getElementById('export-btn');
+    const exportMenu = document.getElementById('export-menu');
+    const exportSelectedHint = document.getElementById('export-selected-hint');
+    const exportSelectedOption = document.getElementById('export-selected-option');
+    const deleteSelectedBtn = document.getElementById('delete-selected-btn');
+    const deleteCountEl = document.getElementById('delete-count');
+    const deleteModal = document.getElementById('delete-modal');
+    const deleteTitle = document.getElementById('delete-title');
+    const deleteSub = document.getElementById('delete-sub');
+    const deleteBody = document.getElementById('delete-body');
+    const deleteError = document.getElementById('delete-error');
+    const deleteConfirm = document.getElementById('delete-confirm');
     const jobProgress = document.getElementById('job-progress');
     const jobBarFill = document.getElementById('job-bar-fill');
     const jobLabel = document.getElementById('job-label');
@@ -87,6 +106,13 @@
     // ============== State ==============
     let currentPage = 1;
     let totalPayments = 0;
+    let pageSize = Number(localStorage.getItem(PAGE_SIZE_KEY)) || 25;
+    // Selection survives paging so a user can gather rows across pages before
+    // exporting or deleting them.
+    const selected = new Set();
+    let pageIds = [];
+    let currentRows = [];
+    let batchName = '';
     let searchQuery = '';
     let loadSeq = 0;
     let selectedHotel = null;
@@ -120,6 +146,10 @@
         if (!res.ok) throw new Error(data.error || 'Request failed');
         return data;
     }
+
+    // A ?batch= in the URL scopes the table to one uploaded file — the
+    // "Pay individually" route from the Batches page.
+    const batchScope = new URLSearchParams(window.location.search).get('batch');
 
     // ============== Global filters ==============
     // Filters and sort are sent to /api/payments/query and applied in Mongo, so
@@ -189,6 +219,30 @@
         return `<span class="pill ${variant}">${escapeHtml(statusLabel(status))}</span>`;
     }
 
+    /**
+     * A declined payment still reads REQUIRES_PAYMENT_METHOD upstream — Airwallex
+     * leaves the intent open so the shopper can retry and records the refusal on
+     * the attempt. Show "Declined" so it is not mistaken for untouched.
+     */
+    function isDeclined(p) {
+        return (
+            p.last_attempt_status === 'FAILED' &&
+            !['SUCCEEDED', 'REQUIRES_CAPTURE'].includes(p.status)
+        );
+    }
+
+    function statusCell(p) {
+        if (!isDeclined(p)) return statusPill(p.status);
+        const reason = (p.last_error && p.last_error.message) || 'Declined';
+        return `
+            <div class="entity-stack">
+                <span class="pill danger" title="${escapeHtml(reason)}">Declined</span>
+                <div class="decline-reason" title="${escapeHtml(reason)}">${escapeHtml(
+                    reason
+                )}</div>
+            </div>`;
+    }
+
     let toastTimer;
     function showToast(message, variant = 'success') {
         if (!toastEl) return;
@@ -252,6 +306,54 @@
         refreshDescriptorPreview();
     });
     descriptorInput.addEventListener('input', refreshDescriptorPreview);
+
+    // ============== Order ID ==============
+    /**
+     * Check the order id as it is typed.
+     *
+     * Reservation ids are unique by process, so this is a safeguard rather than
+     * a routine path — but catching a clash here beats losing a filled-in form
+     * to a 409 on submit.
+     */
+    let orderIdTimer;
+    let orderIdSeq = 0;
+    let orderIdAvailable = true;
+
+    async function checkOrderId() {
+        const value = orderIdInput.value.trim();
+        if (!value) {
+            orderIdStatus.hidden = true;
+            orderIdAvailable = true;
+            return;
+        }
+
+        const seq = ++orderIdSeq;
+        try {
+            const data = await api(
+                `/api/payments/order-id-available?value=${encodeURIComponent(value)}`
+            );
+            if (seq !== orderIdSeq) return; // a later keystroke already won
+
+            orderIdAvailable = data.available !== false;
+            orderIdStatus.hidden = false;
+            orderIdStatus.className = `order-id-status ${
+                orderIdAvailable ? 'is-free' : 'is-taken'
+            }`;
+            orderIdStatus.textContent = orderIdAvailable
+                ? 'Available'
+                : data.reason || 'Already used';
+        } catch (err) {
+            if (seq !== orderIdSeq) return;
+            orderIdStatus.hidden = true;
+            orderIdAvailable = true; // the server re-checks on submit anyway
+        }
+    }
+
+    orderIdInput.addEventListener('input', () => {
+        clearTimeout(orderIdTimer);
+        orderIdStatus.hidden = true;
+        orderIdTimer = setTimeout(checkOrderId, 350);
+    });
 
     // ============== Hotel picker ==============
     function renderHotelResults(items) {
@@ -394,14 +496,19 @@
         const closer = event.target.closest('[data-close]');
         if (closer) {
             const target =
-                { new: newModal, bulk: bulkModal, detail: detailModal }[closer.dataset.close] ||
-                detailModal;
+                {
+                    new: newModal,
+                    bulk: bulkModal,
+                    detail: detailModal,
+                    delete: deleteModal,
+                }[closer.dataset.close] || detailModal;
             closeModal(target);
             return;
         }
         if (event.target === newModal) closeModal(newModal);
         if (event.target === bulkModal) closeModal(bulkModal);
         if (event.target === detailModal) closeModal(detailModal);
+        if (event.target === deleteModal) closeModal(deleteModal);
     });
 
     document.addEventListener('keydown', (event) => {
@@ -409,12 +516,15 @@
         if (!newModal.hidden) closeModal(newModal);
         if (!bulkModal.hidden) closeModal(bulkModal);
         if (!detailModal.hidden) closeModal(detailModal);
+        if (!deleteModal.hidden) closeModal(deleteModal);
     });
 
     newBtn.addEventListener('click', () => {
         newForm.reset();
         newError.hidden = true;
         descriptorInput.value = '';
+        orderIdStatus.hidden = true;
+        orderIdAvailable = true;
         resetHotelPicker();
         refreshDescriptorPreview();
         openModal(newModal);
@@ -433,9 +543,16 @@
             return;
         }
 
+        if (!orderIdAvailable) {
+            newError.textContent = 'That Order ID is already used — change it before continuing.';
+            newError.hidden = false;
+            return;
+        }
+
         const payload = {
             amount,
             currency: formData.get('currency'),
+            merchant_order_id: (formData.get('merchant_order_id') || '').trim() || undefined,
             reference: (formData.get('reference') || '').trim() || undefined,
             description: (formData.get('description') || '').trim() || undefined,
             descriptor: (formData.get('descriptor') || '').trim() || undefined,
@@ -488,16 +605,24 @@
         },
     });
 
-    document.getElementById('bulk-create-btn').addEventListener('click', () => {
+    function openBulkModal() {
         stopJobPolling();
         bulkResult.hidden = true;
         jobProgress.hidden = true;
-        bulkDropzone.reset(
-            'Drop a CSV or Excel file here',
-            '.csv or .xlsx, up to 500 payments'
-        );
+        bulkDropzone.reset('Drop a CSV or Excel file here', '.csv or .xlsx — no row limit');
         openModal(bulkModal);
-    });
+    }
+
+    document.getElementById('bulk-create-btn').addEventListener('click', openBulkModal);
+
+    // /payments?bulk=1 — the Batches page's "Upload a batch" lands here.
+    if (new URLSearchParams(window.location.search).get('bulk') === '1') {
+        openBulkModal();
+        // Drop the flag so a refresh does not reopen the dialog.
+        const url = new URL(window.location.href);
+        url.searchParams.delete('bulk');
+        window.history.replaceState({}, '', url.pathname + url.search);
+    }
 
     bulkTemplateLink.addEventListener('click', async (event) => {
         event.preventDefault();
@@ -508,17 +633,13 @@
         }
     });
 
-    /**
-     * Card columns in a booking export are read by nobody — storing a CVV is
-     * prohibited outright and PANs would drag us into a compliance scope we are
-     * nowhere near. Say so explicitly so it is never assumed they were charged.
-     */
+    /** Columns present in the file that this import deliberately does not use. */
     function ignoredColumnsHtml(data) {
         const ignored = data.ignored_columns || [];
         if (!ignored.length) return '';
-        return `<div class="bulk-note">Ignored and never stored: <strong>${ignored
+        return `<div class="bulk-note">Not imported: <strong>${ignored
             .map(escapeHtml)
-            .join(', ')}</strong>. Card details only ever reach Airwallex from the shopper's browser.</div>`;
+            .join(', ')}</strong>. The <strong>Customer</strong> column is the payer and is used instead.</div>`;
     }
 
     /**
@@ -569,13 +690,46 @@
                 .join(' · ');
             const newHotels = data.hotels_to_create || [];
             const dupes = data.duplicates || [];
+            const skipped = data.excluded || [];
             bulkResult.className = 'bulk-result is-success';
             bulkResult.innerHTML = `
                 <div class="bulk-result-head">
                     <strong>${data.ready} payment${data.ready === 1 ? '' : 's'} ready</strong>
-                    <span>${escapeHtml(totals)} — nothing has been created yet.</span>
+                    <span>${escapeHtml(totals)} · ${
+                        data.cards_present === data.ready
+                            ? 'all with stored cards'
+                            : `${data.cards_present || 0} with cards`
+                    } — nothing has been created yet.</span>
                 </div>
                 ${ignoredColumnsHtml(data)}
+                ${
+                    skipped.length
+                        ? `<div class="bulk-subhead">${skipped.length} row${
+                              skipped.length === 1 ? '' : 's'
+                          } excluded — unsupported card</div>
+                           <ul class="bulk-preview-list">
+                             ${skipped
+                                 .slice(0, 8)
+                                 .map(
+                                     (x) => `<li>
+                                        <span class="bulk-line">Line ${x.line}</span>
+                                        <span class="bulk-preview-hotel">${escapeHtml(
+                                            x.reason
+                                        )}</span>
+                                        <span class="bulk-preview-amount">····${escapeHtml(
+                                            x.card_last4 || ''
+                                        )}</span>
+                                     </li>`
+                                 )
+                                 .join('')}
+                           </ul>
+                           ${
+                               skipped.length > 8
+                                   ? `<p class="bulk-more">…and ${skipped.length - 8} more</p>`
+                                   : ''
+                           }`
+                        : ''
+                }
                 ${
                     dupes.length
                         ? `<div class="bulk-subhead">${dupes.length} row${
@@ -659,7 +813,9 @@
         bulkResult.hidden = true;
         try {
             const { status, data } = await postFile(
-                `/api/payments/bulk/create?auto_create_hotels=${autoCreateCheck.checked}`,
+                `/api/payments/bulk/create?auto_create_hotels=${
+                    autoCreateCheck.checked
+                }&file_name=${encodeURIComponent(file.name)}`,
                 file
             );
 
@@ -759,6 +915,7 @@
             .map(
                 () => `
                 <tr class="skeleton-row">
+                    <td class="col-check"><div class="skel-pill" style="width:16px"></div></td>
                     <td><div class="skel-pill" style="width:70%"></div></td>
                     <td><div class="skel-pill" style="width:65%"></div></td>
                     <td><div class="skel-pill" style="width:50%"></div></td>
@@ -768,6 +925,7 @@
                     <td><div class="skel-pill" style="width:35%"></div></td>
                     <td><div class="skel-pill" style="width:55%"></div></td>
                     <td><div class="skel-pill" style="width:65%"></div></td>
+                    <td><div class="skel-pill" style="width:50%"></div></td>
                     <td><div class="skel-pill" style="width:55%"></div></td>
                     <td><div class="skel-pill" style="width:40%"></div></td>
                 </tr>`
@@ -779,7 +937,7 @@
         const filtered = searchQuery || filters.hasAny();
         return `
             <tr>
-                <td colspan="11">
+                <td colspan="13">
                     <div class="data-empty">
                         <div class="empty-icon">
                             <svg viewBox="0 0 24 24" fill="none">
@@ -803,6 +961,14 @@
             .map(
                 (p) => `
                 <tr data-id="${escapeHtml(p.payment_intent_id)}">
+                    <td class="col-check">
+                        <label class="row-check-label">
+                            <input type="checkbox" class="row-check" data-select="${escapeHtml(
+                                p.payment_intent_id
+                            )}" ${selected.has(p.payment_intent_id) ? 'checked' : ''}>
+                            <span class="row-check-box"></span>
+                        </label>
+                    </td>
                     <td>
                         <div class="entity-stack">
                             <div class="entity-name">${escapeHtml(p.merchant_order_id)}</div>
@@ -834,10 +1000,17 @@
                     }</td>
                     <td class="amount-cell">${escapeHtml(formatAmount(p.amount, p.currency))}</td>
                     <td><span class="entity-meta">${escapeHtml(p.currency)}</span></td>
-                    <td>${statusPill(p.status)}</td>
+                    <td>${statusCell(p)}</td>
                     <td>${
                         p.descriptor
                             ? `<code class="descriptor-cell">${escapeHtml(p.descriptor)}</code>`
+                            : '<span class="entity-meta">—</span>'
+                    }</td>
+                    <td>${
+                        p.batch_name
+                            ? `<span class="batch-tag" title="${escapeHtml(
+                                  p.batch_name
+                              )}">${escapeHtml(p.batch_name)}</span>`
                             : '<span class="entity-meta">—</span>'
                     }</td>
                     <td><span class="entity-meta">${escapeHtml(formatDate(p.created_at))}</span></td>
@@ -858,39 +1031,58 @@
             .join('');
     }
 
+    const PAGER_ICONS = {
+        first: '<svg viewBox="0 0 16 16" fill="none"><path d="M11 3.5L6.5 8l4.5 4.5M5 3.5v9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        prev: '<svg viewBox="0 0 16 16" fill="none"><path d="M10 3.5L5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        next: '<svg viewBox="0 0 16 16" fill="none"><path d="M6 3.5L10.5 8 6 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        last: '<svg viewBox="0 0 16 16" fill="none"><path d="M5 3.5L9.5 8 5 12.5M11 3.5v9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    };
+
     function renderPagination() {
-        const pages = Math.ceil(totalPayments / PAGE_SIZE);
-        if (pages <= 1) {
+        const pages = Math.max(1, Math.ceil(totalPayments / pageSize));
+
+        // The bar carries the rows-per-page control, so it stays visible even on
+        // a single page — only an empty result hides it, where the empty state
+        // already explains itself.
+        if (!totalPayments) {
             paginationEl.hidden = true;
             return;
         }
         paginationEl.hidden = false;
 
-        const from = (currentPage - 1) * PAGE_SIZE + 1;
-        const to = Math.min(currentPage * PAGE_SIZE, totalPayments);
+        // Clamp: shrinking the page size can leave currentPage past the end.
+        if (currentPage > pages) currentPage = pages;
 
-        let buttons = '';
+        const from = (currentPage - 1) * pageSize + 1;
+        const to = Math.min(currentPage * pageSize, totalPayments);
+
+        let numbers = '';
         for (let i = 1; i <= pages; i += 1) {
             if (i === 1 || i === pages || Math.abs(i - currentPage) <= 1) {
-                buttons += `<button class="page-btn ${
+                numbers += `<button class="page-btn ${
                     i === currentPage ? 'active' : ''
-                }" type="button" data-page="${i}">${i}</button>`;
+                }" type="button" data-page="${i}" aria-label="Page ${i}" ${
+                    i === currentPage ? 'aria-current="page"' : ''
+                }>${i}</button>`;
             } else if (Math.abs(i - currentPage) === 2) {
-                buttons += '<span class="page-dots">…</span>';
+                numbers += '<span class="page-dots">…</span>';
             }
         }
 
-        paginationEl.innerHTML = `
-            <div class="pagination-info">${from}–${to} of ${totalPayments}</div>
-            <div class="pagination-controls">
-                <button class="page-btn" type="button" data-page="${currentPage - 1}" ${
-                    currentPage === 1 ? 'disabled' : ''
-                }>Prev</button>
-                ${buttons}
-                <button class="page-btn" type="button" data-page="${currentPage + 1}" ${
-                    currentPage === pages ? 'disabled' : ''
-                }>Next</button>
-            </div>`;
+        const step = (page, icon, label, disabled) => `
+            <button class="page-btn page-btn-icon" type="button" data-page="${page}" title="${label}"
+                    aria-label="${label}" ${disabled ? 'disabled' : ''}>${PAGER_ICONS[icon]}</button>`;
+
+        const atStart = currentPage === 1;
+        const atEnd = currentPage === pages;
+
+        paginationInfo.textContent = `${from}–${to} of ${totalPayments}`;
+        paginationControls.innerHTML = `
+            ${step(1, 'first', 'First page', atStart)}
+            ${step(currentPage - 1, 'prev', 'Previous page', atStart)}
+            ${numbers}
+            ${step(currentPage + 1, 'next', 'Next page', atEnd)}
+            ${step(pages, 'last', 'Last page', atEnd)}`;
     }
 
     async function loadPayments() {
@@ -901,27 +1093,34 @@
             const data = await api('/api/payments/query', {
                 method: 'POST',
                 body: JSON.stringify({
-                    filters: filters.getFilters(),
+                    filters: {
+                        ...filters.getFilters(),
+                        ...(batchScope ? { batch: { op: 'eq', value: batchScope } } : {}),
+                    },
                     sort: filters.getSort(),
                     search: searchQuery || undefined,
-                    limit: PAGE_SIZE,
-                    skip: (currentPage - 1) * PAGE_SIZE,
+                    limit: pageSize,
+                    skip: (currentPage - 1) * pageSize,
                 }),
             });
             if (seq !== loadSeq) return; // a newer request already landed
 
             totalPayments = data.total;
-            filters.renderHead();
+            currentRows = data.items;
+            pageIds = data.items.map((p) => p.payment_intent_id);
+            filters.renderHead(selectAllCell());
             renderActiveFilters();
             renderFilteredTotals(data.totals);
 
             if (!data.items.length) {
                 tbody.innerHTML = emptyState();
-                paginationEl.hidden = true;
+                renderPagination();
+                refreshSelectionUi();
                 return;
             }
             renderRows(data.items);
             renderPagination();
+            refreshSelectionUi();
         } catch (err) {
             if (seq !== loadSeq) return;
             tbody.innerHTML = emptyState();
@@ -935,6 +1134,20 @@
     function renderActiveFilters() {
         const active = filters.describe();
         const sort = filters.getSort();
+
+        if (batchScope) {
+            activeFiltersEl.innerHTML = `
+                <span class="filter-chip">
+                    <span class="filter-chip-label">Batch</span>
+                    <span class="filter-chip-value">${escapeHtml(
+                        batchName || batchScope
+                    )}</span>
+                    <a class="filter-chip-remove" href="/payments" aria-label="Show all payments">&times;</a>
+                </span>
+                <a class="filter-clear-all" href="/batches">Back to batches</a>`;
+            activeFiltersEl.hidden = false;
+            return;
+        }
 
         if (!active.length && !sort) {
             activeFiltersEl.hidden = true;
@@ -1134,14 +1347,32 @@
 
             ${
                 p.last_error && p.last_error.message
-                    ? `<p class="form-error" style="display:block">${escapeHtml(
-                          p.last_error.message
-                      )}</p>`
+                    ? `<div class="detail-failure">
+                           <div class="detail-failure-head">
+                               Last attempt failed${
+                                   p.last_error.code
+                                       ? ` · <code>${escapeHtml(p.last_error.code)}</code>`
+                                       : ''
+                               }
+                           </div>
+                           <div>${escapeHtml(p.last_error.message)}</div>
+                           ${
+                               p.attempt_count
+                                   ? `<div class="detail-failure-meta">${p.attempt_count} attempt${
+                                         p.attempt_count === 1 ? '' : 's'
+                                     } · last outcome ${escapeHtml(
+                                         statusLabel(p.last_attempt_status)
+                                     )}</div>`
+                                   : ''
+                           }
+                       </div>`
                     : ''
             }
 
             <div class="timeline-title">Timeline</div>
             <ul class="timeline">${events || '<li>No events recorded.</li>'}</ul>
+
+            ${renderApiLog(p.api_log || [])}
 
             <div class="detail-actions">
                 ${
@@ -1151,6 +1382,9 @@
                           )}">Take payment</button>`
                         : ''
                 }
+                <button class="btn btn-danger" type="button" data-delete-one="${escapeHtml(
+                    p.payment_intent_id
+                )}">Delete</button>
                 <button class="btn btn-ghost" type="button" data-detail-action="sync" data-id="${escapeHtml(
                     p.payment_intent_id
                 )}">
@@ -1170,10 +1404,72 @@
             </div>`;
     }
 
+    /**
+     * Every exchange with Airwallex for this payment, newest first.
+     *
+     * `client_secret` is redacted before storage, and card data never passes
+     * through our server at all, so this is safe to display.
+     */
+    function renderApiLog(entries) {
+        if (!entries.length) return '';
+
+        const rows = entries
+            .slice()
+            .reverse()
+            .map((e, i) => {
+                const ok = e.status >= 200 && e.status < 300;
+                return `
+                <details class="api-entry${ok ? '' : ' is-error'}"${i === 0 && !ok ? ' open' : ''}>
+                    <summary>
+                        <span class="api-method">${escapeHtml(e.method || '')}</span>
+                        <span class="api-path">${escapeHtml(e.path || '')}</span>
+                        <span class="api-status ${ok ? 'ok' : 'fail'}">${escapeHtml(
+                            String(e.status || '—')
+                        )}</span>
+                        <span class="api-meta">${escapeHtml(formatDate(e.at))}${
+                            e.duration_ms ? ` · ${e.duration_ms}ms` : ''
+                        }</span>
+                    </summary>
+                    ${
+                        e.error
+                            ? `<div class="api-error">${escapeHtml(e.error)}</div>`
+                            : ''
+                    }
+                    <div class="api-pair">
+                        <div class="api-label">Request →</div>
+                        <pre class="api-body">${escapeHtml(
+                            JSON.stringify(e.request ?? null, null, 2)
+                        )}</pre>
+                    </div>
+                    <div class="api-pair">
+                        <div class="api-label">← Response</div>
+                        <pre class="api-body">${escapeHtml(
+                            JSON.stringify(e.response ?? null, null, 2)
+                        )}</pre>
+                    </div>
+                </details>`;
+            })
+            .join('');
+
+        return `
+            <div class="timeline-title" style="margin-top:22px">
+                Airwallex exchanges
+                <span class="api-log-note">last ${entries.length}, newest first · secrets redacted</span>
+            </div>
+            <div class="api-log">${rows}</div>`;
+    }
+
     detailBody.addEventListener('click', async (event) => {
         const pay = event.target.closest('[data-pay]');
         if (pay) {
             openCheckoutFor(pay.dataset.pay, pay);
+            return;
+        }
+
+        const del = event.target.closest('[data-delete-one]');
+        if (del) {
+            closeModal(detailModal);
+            openDeleteModal([del.dataset.deleteOne]);
             return;
         }
 
@@ -1197,6 +1493,212 @@
         } catch (err) {
             setLoading(button, false);
             showToast(err.message, 'error');
+        }
+    });
+
+    // ============== Selection ==============
+    function selectAllCell() {
+        const allOnPage = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+        const someOnPage = pageIds.some((id) => selected.has(id));
+        return `
+            <th class="col-check">
+                <label class="row-check-label">
+                    <input type="checkbox" id="select-all-check" ${allOnPage ? 'checked' : ''} ${
+                        !allOnPage && someOnPage ? 'data-indeterminate="1"' : ''
+                    } aria-label="Select all rows on this page">
+                    <span class="row-check-box"></span>
+                </label>
+            </th>`;
+    }
+
+    function refreshSelectionUi() {
+        const count = selected.size;
+
+        deleteSelectedBtn.hidden = count === 0;
+        deleteCountEl.textContent = count ? `(${count})` : '';
+
+        exportSelectedOption.disabled = count === 0;
+        exportSelectedHint.textContent = count
+            ? `${count} row${count === 1 ? '' : 's'} selected`
+            : 'No rows selected';
+
+        const selectAll = document.getElementById('select-all-check');
+        if (selectAll) {
+            const allOnPage = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+            const someOnPage = pageIds.some((id) => selected.has(id));
+            selectAll.checked = allOnPage;
+            selectAll.indeterminate = !allOnPage && someOnPage;
+        }
+    }
+
+    // Delegated so it survives every re-render of the header.
+    theadRow.addEventListener('change', (event) => {
+        if (event.target.id !== 'select-all-check') return;
+        if (event.target.checked) pageIds.forEach((id) => selected.add(id));
+        else pageIds.forEach((id) => selected.delete(id));
+        tbody.querySelectorAll('.row-check').forEach((box) => {
+            box.checked = selected.has(box.dataset.select);
+        });
+        refreshSelectionUi();
+    });
+
+    tbody.addEventListener('change', (event) => {
+        const box = event.target.closest('.row-check');
+        if (!box) return;
+        if (box.checked) selected.add(box.dataset.select);
+        else selected.delete(box.dataset.select);
+        refreshSelectionUi();
+    });
+
+    // ============== Export ==============
+    exportBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        exportMenu.hidden = !exportMenu.hidden;
+        exportWrap.classList.toggle('open', !exportMenu.hidden);
+    });
+
+    document.addEventListener('click', (event) => {
+        if (!exportWrap.contains(event.target)) {
+            exportMenu.hidden = true;
+            exportWrap.classList.remove('open');
+        }
+    });
+
+    exportMenu.addEventListener('click', async (event) => {
+        const option = event.target.closest('[data-export]');
+        if (!option || option.disabled) return;
+        exportMenu.hidden = true;
+        exportWrap.classList.remove('open');
+
+        // "Selected" sends ids; "all" sends the live filters so the report
+        // covers every matching row, not just the page on screen.
+        const body =
+            option.dataset.export === 'selected'
+                ? { ids: [...selected] }
+                : {
+                      filters: filters.getFilters(),
+                      search: searchQuery || undefined,
+                      sort: filters.getSort(),
+                  };
+
+        try {
+            const res = await fetch('/api/payments/export', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...authHeaders() },
+                body: JSON.stringify(body),
+            });
+            if (res.status === 401) {
+                window.location.replace('/login');
+                return;
+            }
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error || 'Export failed');
+            }
+
+            const count = res.headers.get('X-Export-Count');
+            const disposition = res.headers.get('Content-Disposition') || '';
+            const match = disposition.match(/filename="?([^"]+)"?/);
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = match ? match[1] : 'payments.csv';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            showToast(`Exported ${count || ''} payment${count === '1' ? '' : 's'}.`);
+        } catch (err) {
+            showToast(err.message, 'error');
+        }
+    });
+
+    // ============== Delete ==============
+    let deleteTargets = [];
+
+    function openDeleteModal(ids) {
+        deleteTargets = ids;
+        deleteError.hidden = true;
+
+        const rows = currentRows.filter((p) => ids.includes(p.payment_intent_id));
+        // Deleting a payment that took money destroys the only durable record of
+        // it, so those are called out separately and need an explicit override.
+        const settled = rows.filter((p) =>
+            ['SUCCEEDED', 'REQUIRES_CAPTURE'].includes(p.status)
+        );
+
+        deleteTitle.textContent =
+            ids.length === 1 ? 'Delete this payment?' : `Delete ${ids.length} payments?`;
+        deleteSub.textContent =
+            'Unpaid intents are cancelled at Airwallex first, so no one can still pay them.';
+
+        deleteBody.innerHTML = `
+            <ul class="delete-list">
+                ${rows
+                    .slice(0, 8)
+                    .map(
+                        (p) => `<li>
+                            <span class="bulk-line">${escapeHtml(p.description || '—')}</span>
+                            <span class="bulk-preview-hotel">${escapeHtml(
+                                p.hotel_name || p.merchant_order_id
+                            )}</span>
+                            <span class="bulk-preview-amount">${escapeHtml(
+                                formatAmount(p.amount, p.currency)
+                            )} ${escapeHtml(p.currency)}</span>
+                        </li>`
+                    )
+                    .join('')}
+            </ul>
+            ${ids.length > 8 ? `<p class="bulk-more">…and ${ids.length - 8} more</p>` : ''}
+            ${
+                settled.length
+                    ? `<label class="upsert-toggle" style="margin-top:14px">
+                           <input type="checkbox" id="delete-force">
+                           <span class="checkbox-custom"></span>
+                           <span><strong>${settled.length}</strong> of these were paid. Deleting removes the only
+                           record that money moved — tick to delete them anyway.</span>
+                       </label>`
+                    : ''
+            }`;
+
+        openModal(deleteModal);
+    }
+
+    deleteSelectedBtn.addEventListener('click', () => openDeleteModal([...selected]));
+
+    deleteConfirm.addEventListener('click', async () => {
+        if (!deleteTargets.length) return;
+        const forceBox = document.getElementById('delete-force');
+
+        setLoading(deleteConfirm, true, 'Deleting…');
+        deleteError.hidden = true;
+        try {
+            const result = await api('/api/payments/bulk-delete', {
+                method: 'POST',
+                body: JSON.stringify({
+                    ids: deleteTargets,
+                    force: !!(forceBox && forceBox.checked),
+                }),
+            });
+
+            deleteTargets.forEach((id) => selected.delete(id));
+            closeModal(deleteModal);
+
+            const parts = [`${result.deleted} deleted`];
+            if (result.refused) parts.push(`${result.refused} refused`);
+            if (result.not_found) parts.push(`${result.not_found} not found`);
+            showToast(parts.join(' · '), result.refused ? 'error' : 'success');
+
+            refreshSelectionUi();
+            tbody.innerHTML = '';
+            loadPayments();
+            loadStats();
+        } catch (err) {
+            deleteError.textContent = err.message;
+            deleteError.hidden = false;
+        } finally {
+            setLoading(deleteConfirm, false);
         }
     });
 
@@ -1238,6 +1740,8 @@
             openCheckoutFor(pay.dataset.pay, pay);
             return;
         }
+        // The checkbox column is for selection, not for opening the detail view.
+        if (event.target.closest('.col-check')) return;
         const row = event.target.closest('tr[data-id]');
         if (!row) return;
         openDetail(row.dataset.id);
@@ -1284,6 +1788,15 @@
         markActiveStatusTab(hasTab ? single : f ? '__none__' : '');
     }
 
+    pageSizeSelect.value = String(pageSize);
+    pageSizeSelect.addEventListener('change', () => {
+        pageSize = Number(pageSizeSelect.value) || 25;
+        localStorage.setItem(PAGE_SIZE_KEY, String(pageSize));
+        currentPage = 1;
+        tbody.innerHTML = '';
+        loadPayments();
+    });
+
     let searchTimer;
     searchInput.addEventListener('input', () => {
         clearTimeout(searchTimer);
@@ -1309,8 +1822,17 @@
         showToast(parsed.message, parsed.variant);
     }
 
+    if (batchScope) {
+        api(`/api/batches/${encodeURIComponent(batchScope)}`)
+            .then((b) => {
+                batchName = b.file_name;
+                renderActiveFilters();
+            })
+            .catch(() => {});
+    }
+
     refreshDescriptorPreview();
-    filters.renderHead();
+    filters.renderHead(selectAllCell());
     loadPayments();
     loadStats();
 })();

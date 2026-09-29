@@ -17,7 +17,9 @@ const zlib = require('zlib');
 // An .xlsx is a ZIP. Guard the decompressed size so a zip bomb cannot exhaust
 // memory before the row limit is ever reached.
 const MAX_ENTRY_BYTES = 64 * 1024 * 1024;
-const MAX_ROWS = 20000;
+// A guard against a runaway file, not a product limit — well above any real
+// booking export.
+const MAX_ROWS = 250000;
 
 const EOCD_SIG = 0x06054b50;
 const CEN_SIG = 0x02014b50;

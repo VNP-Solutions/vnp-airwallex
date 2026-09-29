@@ -15,6 +15,7 @@ module.exports = {
         { name: 'Users', description: 'User management endpoints' },
         { name: 'Payments', description: 'Airwallex payments and local payment history' },
         { name: 'Hotels', description: 'Properties, their statement descriptors, and bulk CSV import/update' },
+        { name: 'Finance', description: "Wallet balances, settlements and Airwallex's Financial Reports API" },
     ],
     components: {
         securitySchemes: {
@@ -50,7 +51,18 @@ module.exports = {
                 properties: {
                     _id: { type: 'string' },
                     payment_intent_id: { type: 'string', example: 'int_sgpvlj8cshln5x35ae5' },
-                    merchant_order_id: { type: 'string', example: 'vnp_1787577831000_a1b2c3d4' },
+                    merchant_order_id: {
+                        type: 'string',
+                        maxLength: 64,
+                        description:
+                            "Our order reference — the reservation id. Operator-supplied and unique across payments; Airwallex does NOT enforce that, so the uniqueness guard is ours. Auto-generated as vnp_<ms>_<rand> only when nothing is supplied.",
+                        example: '2497667019',
+                    },
+                    public_token: {
+                        type: 'string',
+                        description:
+                            'Unguessable handle used by the return page and the public status endpoint. Kept separate from merchant_order_id because reservation ids run in sequence.',
+                    },
                     request_id: { type: 'string', format: 'uuid' },
                     amount: { type: 'number', example: 12.5 },
                     currency: { type: 'string', example: 'USD' },
@@ -406,6 +418,199 @@ module.exports = {
                 },
             },
         },
+        '/finance/balances': {
+            get: {
+                tags: ['Finance'],
+                summary: 'Wallet balances per currency',
+                description:
+                    'Airwallex returns every currency the account can hold (46 of them, nearly all zero); empty ones are dropped unless include_zero is set.',
+                security: [{ bearerAuth: [] }],
+                parameters: [
+                    { name: 'include_zero', in: 'query', schema: { type: 'boolean', default: false } },
+                ],
+                responses: {
+                    200: {
+                        description: 'Balances, largest holding first',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        items: {
+                                            type: 'array',
+                                            items: {
+                                                type: 'object',
+                                                properties: {
+                                                    currency: { type: 'string' },
+                                                    available_amount: { type: 'number' },
+                                                    pending_amount: { type: 'number' },
+                                                    reserved_amount: { type: 'number' },
+                                                    total_amount: { type: 'number' },
+                                                    account_type: { type: 'string' },
+                                                },
+                                            },
+                                        },
+                                        currencies_total: { type: 'integer' },
+                                        currencies_funded: { type: 'integer' },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                },
+            },
+        },
+        '/finance/settlements': {
+            get: {
+                tags: ['Finance'],
+                summary: 'Settlement batches',
+                description:
+                    'Airwallex has no batch-level endpoint — a batch is the set of financial transactions sharing a batch_id, so the grouping happens here. Gross, fees and net are summed per batch and per currency.',
+                security: [{ bearerAuth: [] }],
+                parameters: [
+                    { name: 'from', in: 'query', schema: { type: 'string', format: 'date-time' } },
+                    { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' } },
+                    { name: 'currency', in: 'query', schema: { type: 'string' } },
+                    { name: 'status', in: 'query', schema: { type: 'string', enum: ['SETTLED', 'PENDING', 'CANCELLED'] } },
+                    { name: 'limit', in: 'query', schema: { type: 'integer', default: 200, maximum: 500 } },
+                ],
+                responses: {
+                    200: { description: 'Batches, totals per currency, and whether more entries exist' },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                },
+            },
+        },
+        '/finance/settlements/{batchId}': {
+            get: {
+                tags: ['Finance'],
+                summary: 'Ledger entries inside one settlement batch',
+                security: [{ bearerAuth: [] }],
+                parameters: [
+                    { name: 'batchId', in: 'path', required: true, schema: { type: 'string', example: 'bat_20260824_USD_1' } },
+                ],
+                responses: { 200: { description: 'Entries' }, 401: { $ref: '#/components/responses/Unauthorized' } },
+            },
+        },
+        '/finance/transactions': {
+            get: {
+                tags: ['Finance'],
+                summary: 'Financial transactions (the Airwallex ledger)',
+                description:
+                    'Payments, fees, payouts, conversions and reserve holds/releases, with their settlement batch and timing.',
+                security: [{ bearerAuth: [] }],
+                parameters: [
+                    { name: 'currency', in: 'query', schema: { type: 'string' } },
+                    { name: 'status', in: 'query', schema: { type: 'string' } },
+                    { name: 'source_type', in: 'query', schema: { type: 'string' } },
+                    { name: 'from', in: 'query', schema: { type: 'string', format: 'date-time' } },
+                    { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' } },
+                    { name: 'limit', in: 'query', schema: { type: 'integer', default: 100, maximum: 500 } },
+                ],
+                responses: { 200: { description: 'Entries' }, 401: { $ref: '#/components/responses/Unauthorized' } },
+            },
+        },
+        '/finance/transactions/export': {
+            get: {
+                tags: ['Finance'],
+                summary: 'Export the ledger as CSV',
+                security: [{ bearerAuth: [] }],
+                responses: {
+                    200: { description: 'CSV', content: { 'text/csv': { schema: { type: 'string' } } } },
+                },
+            },
+        },
+        '/finance/reports/options': {
+            get: {
+                tags: ['Finance'],
+                summary: 'Report types and the formats each supports',
+                description:
+                    'The type/format matrix was probed against the API — asking for an unsupported pair fails with "File format CSV not supported", so the UI only offers working combinations.',
+                security: [{ bearerAuth: [] }],
+                responses: { 200: { description: 'Types with their allowed formats' } },
+            },
+        },
+        '/finance/reports': {
+            get: {
+                tags: ['Finance'],
+                summary: 'List generated reports',
+                security: [{ bearerAuth: [] }],
+                responses: { 200: { description: 'Reports' } },
+            },
+            post: {
+                tags: ['Finance'],
+                summary: 'Ask Airwallex to generate a report',
+                description:
+                    'Returns 202 — generation is asynchronous. Poll GET /finance/reports/{id} until status is COMPLETED, then download.',
+                security: [{ bearerAuth: [] }],
+                requestBody: {
+                    required: true,
+                    content: {
+                        'application/json': {
+                            schema: {
+                                type: 'object',
+                                required: ['type', 'file_format', 'from_date', 'to_date'],
+                                properties: {
+                                    type: {
+                                        type: 'string',
+                                        enum: [
+                                            'SETTLEMENT_REPORT',
+                                            'TRANSACTION_RECON_REPORT',
+                                            'BALANCE_ACTIVITY_REPORT',
+                                            'ONLINE_PAYMENTS_TRANSACTION_REPORT',
+                                            'ACCOUNT_STATEMENT_REPORT',
+                                        ],
+                                    },
+                                    file_format: { type: 'string', enum: ['CSV', 'EXCEL', 'PDF'] },
+                                    from_date: { type: 'string', format: 'date' },
+                                    to_date: { type: 'string', format: 'date' },
+                                    currencies: {
+                                        type: 'array',
+                                        items: { type: 'string' },
+                                        description: 'Required for ACCOUNT_STATEMENT_REPORT.',
+                                    },
+                                    time_zone: { type: 'string', default: 'UTC' },
+                                },
+                            },
+                        },
+                    },
+                },
+                responses: {
+                    202: { description: 'Report queued' },
+                    400: { $ref: '#/components/responses/BadRequest' },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                },
+            },
+        },
+        '/finance/reports/{id}': {
+            get: {
+                tags: ['Finance'],
+                summary: 'Report status',
+                security: [{ bearerAuth: [] }],
+                parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+                responses: { 200: { description: 'PENDING, COMPLETED or FAILED' } },
+            },
+        },
+        '/finance/reports/{id}/download': {
+            get: {
+                tags: ['Finance'],
+                summary: 'Download a generated report',
+                description:
+                    "Proxied rather than redirected, because the download needs our Airwallex bearer token. The content type is corrected from the filename: a CSV settlement report actually arrives as a ZIP of per-currency CSVs under a text/plain header.",
+                security: [{ bearerAuth: [] }],
+                parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+                responses: {
+                    200: {
+                        description: 'The file',
+                        content: {
+                            'application/zip': { schema: { type: 'string', format: 'binary' } },
+                            'application/pdf': { schema: { type: 'string', format: 'binary' } },
+                            'text/csv': { schema: { type: 'string' } },
+                        },
+                    },
+                },
+            },
+        },
         '/payments': {
             get: {
                 tags: ['Payments'],
@@ -508,6 +713,12 @@ module.exports = {
                                         maxLength: 64,
                                         description:
                                             'Idempotency key. Pass the reservation id to make the call safe to retry; omitted means a generated uuid. A reused key returns 409 and charges nothing.',
+                                    },
+                                    merchant_order_id: {
+                                        type: 'string',
+                                        maxLength: 64,
+                                        description:
+                                            'Order reference. Falls back to `description` (the reservation id), then to a generated id. A value already in use returns 409.',
                                     },
                                     metadata: { type: 'object', additionalProperties: true },
                                 },
@@ -870,6 +1081,12 @@ module.exports = {
                         schema: { type: 'boolean', default: true },
                         description: 'Create properties the file references but we do not hold yet, from its Portfolio / Property Name / Descriptor / Website columns.',
                     },
+                    {
+                        name: 'skip_card_checks',
+                        in: 'query',
+                        schema: { type: 'boolean', default: false },
+                        description: 'Bypass the Luhn checksum on card numbers. Brand exclusions still apply.',
+                    },
                 ],
                 requestBody: {
                     required: true,
@@ -884,7 +1101,7 @@ module.exports = {
                 responses: {
                     200: {
                         description:
-                            'File is valid. `duplicates` lists rows already created on an earlier run — they are skipped, not errors.',
+                            'File is valid. `duplicates` lists rows already created on an earlier run and `excluded` lists rows skipped for an unsupported card brand — both are skips, not errors. There is no row limit.',
                     },
                     422: { description: 'File has problems — every bad row is listed' },
                     401: { $ref: '#/components/responses/Unauthorized' },
@@ -953,6 +1170,37 @@ module.exports = {
                         content: { 'application/json': { schema: { $ref: '#/components/schemas/BulkJob' } } },
                     },
                     404: { description: 'Not found' },
+                },
+            },
+        },
+        '/payments/order-id-available': {
+            get: {
+                tags: ['Payments'],
+                summary: 'Is this order id free?',
+                description:
+                    'Backs the inline check in the new-payment form. Airwallex does not enforce merchant_order_id uniqueness, so this is our own guard.',
+                security: [{ bearerAuth: [] }],
+                parameters: [
+                    { name: 'value', in: 'query', required: true, schema: { type: 'string' } },
+                ],
+                responses: {
+                    200: {
+                        description:
+                            '`available: true` when free, `false` with a reason when taken or too long, `null` for an empty value.',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        value: { type: 'string' },
+                                        available: { type: 'boolean', nullable: true },
+                                        reason: { type: 'string' },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    401: { $ref: '#/components/responses/Unauthorized' },
                 },
             },
         },
@@ -1176,7 +1424,7 @@ module.exports = {
                 tags: ['Payments'],
                 summary: 'Public status lookup for the post-checkout return page',
                 description:
-                    'Unauthenticated: the shopper returning from checkout has no session. Re-reads the intent from Airwallex and returns only display fields.',
+                    'Unauthenticated: the party returning from checkout has no session. Takes the payment\'s `public_token`, NOT its order id — order ids are operator-chosen reservation numbers and run in sequence, so keying on them would let anyone enumerate payments. Re-reads the intent from Airwallex and returns only display fields.',
                 parameters: [
                     { name: 'orderId', in: 'path', required: true, schema: { type: 'string' } },
                 ],

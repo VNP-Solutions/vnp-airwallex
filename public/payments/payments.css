@@ -823,3 +823,328 @@
     opacity: 0.55;
     cursor: not-allowed;
 }
+
+/* ============================================================
+   Row selection
+   ============================================================ */
+.col-check {
+    width: 38px;
+    padding-right: 0 !important;
+}
+
+.row-check-label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+}
+
+.row-check-label input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.row-check-box {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 1.5px solid rgba(255, 255, 255, 0.28);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.row-check-box::after {
+    content: '';
+    width: 8px;
+    height: 5px;
+    border-left: 2px solid #0F1B33;
+    border-bottom: 2px solid #0F1B33;
+    transform: rotate(-45deg) translate(1px, -1px);
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.row-check-label input:checked + .row-check-box {
+    background: #FFD200;
+    border-color: #FFD200;
+}
+
+.row-check-label input:checked + .row-check-box::after { opacity: 1; }
+
+.row-check-label input:indeterminate + .row-check-box {
+    background: rgba(255, 210, 0, 0.35);
+    border-color: #FFD200;
+}
+
+.row-check-label input:indeterminate + .row-check-box::after {
+    opacity: 1;
+    width: 8px;
+    height: 0;
+    border-left: none;
+    border-bottom: 2px solid #0F1B33;
+    transform: none;
+}
+
+/* ============================================================
+   Bottom pagination bar
+   ============================================================ */
+.page-size {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    /* Anchors the left end of the bar; info and controls sit to its right. */
+    margin-right: auto;
+}
+
+.page-size label {
+    font-size: 11.5px;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.page-size select {
+    height: 34px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 0 8px;
+    font-size: 12.5px;
+    font-family: inherit;
+    color: #FFFFFF;
+    outline: none;
+    cursor: pointer;
+}
+
+.page-size select:focus { border-color: #FFD200; }
+.page-size select option { background: #14274E; color: #FFFFFF; }
+
+/* ============================================================
+   Declined rows
+   ============================================================ */
+.decline-reason {
+    font-size: 11px;
+    color: rgba(255, 107, 107, 0.8);
+    margin-top: 3px;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.detail-failure {
+    background: rgba(255, 107, 107, 0.08);
+    border: 1px solid rgba(255, 107, 107, 0.25);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 20px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.detail-failure-head {
+    font-weight: 600;
+    color: #FF9B9B;
+    margin-bottom: 4px;
+}
+
+.detail-failure-head code {
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    background: rgba(255, 107, 107, 0.15);
+    border-radius: 4px;
+    padding: 1px 6px;
+}
+
+.detail-failure-meta {
+    font-size: 11.5px;
+    color: rgba(255, 255, 255, 0.45);
+    margin-top: 6px;
+}
+
+/* ============================================================
+   Airwallex exchange log
+   ============================================================ */
+.api-log-note {
+    font-size: 10.5px;
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+    color: rgba(255, 255, 255, 0.35);
+    margin-left: 8px;
+}
+
+.api-log {
+    display: grid;
+    gap: 7px;
+    max-height: 340px;
+    overflow-y: auto;
+}
+
+.api-entry {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 9px;
+    overflow: hidden;
+}
+
+.api-entry.is-error {
+    border-color: rgba(255, 107, 107, 0.3);
+    background: rgba(255, 107, 107, 0.05);
+}
+
+.api-entry summary {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 12px;
+    cursor: pointer;
+    font-size: 12px;
+    user-select: none;
+}
+
+.api-entry summary::marker { color: rgba(255, 255, 255, 0.3); }
+
+.api-method {
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    font-size: 10.5px;
+    font-weight: 700;
+    color: #6FA8FF;
+    flex-shrink: 0;
+}
+
+.api-path {
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.7);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.api-status {
+    font-size: 10.5px;
+    font-weight: 700;
+    border-radius: 4px;
+    padding: 1px 6px;
+    flex-shrink: 0;
+}
+
+.api-status.ok { background: rgba(76, 210, 149, 0.15); color: #4CD295; }
+.api-status.fail { background: rgba(255, 107, 107, 0.15); color: #FF6B6B; }
+
+.api-meta {
+    margin-left: auto;
+    font-size: 10.5px;
+    color: rgba(255, 255, 255, 0.35);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.api-error {
+    margin: 0 12px 10px;
+    font-size: 12px;
+    color: #FF9B9B;
+}
+
+.api-pair { padding: 0 12px 10px; }
+
+.api-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.4);
+    margin-bottom: 5px;
+}
+
+.api-body {
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.55;
+    color: rgba(255, 255, 255, 0.78);
+    background: rgba(0, 0, 0, 0.28);
+    border-radius: 7px;
+    padding: 9px 11px;
+    max-height: 220px;
+    overflow: auto;
+    white-space: pre;
+}
+
+/* ============================================================
+   Delete confirmation
+   ============================================================ */
+.delete-list {
+    list-style: none;
+    display: grid;
+    gap: 7px;
+    max-height: 220px;
+    overflow-y: auto;
+    margin-bottom: 4px;
+}
+
+.delete-list li {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 12.5px;
+}
+
+.delete-list .bulk-line { color: #FF9B9B; background: rgba(255, 107, 107, 0.13); }
+
+/* The bar is a three-part row: rows-per-page · range · controls. */
+.pagination-bar {
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.pagination-controls {
+    gap: 4px;
+}
+
+/* Icon steppers are square so they read as controls, not page numbers. */
+.page-btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    width: 30px;
+}
+
+.page-btn-icon svg {
+    width: 14px;
+    height: 14px;
+    display: block;
+}
+
+.page-btn-icon:disabled svg {
+    opacity: 0.45;
+}
+
+/* Inline availability feedback on the Order ID field. */
+.order-id-status {
+    font-size: 11.5px;
+    margin-top: 6px;
+    line-height: 1.5;
+}
+
+.order-id-status[hidden] { display: none; }
+.order-id-status.is-free { color: #7FE3B5; }
+.order-id-status.is-taken { color: #FF9B9B; }
+
+/* Which uploaded file a payment came from. */
+.batch-tag {
+    display: inline-block;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+    font-size: 11.5px;
+    color: #B084EF;
+    background: rgba(176, 132, 239, 0.1);
+    border: 1px solid rgba(176, 132, 239, 0.22);
+    border-radius: 6px;
+    padding: 3px 9px;
+}

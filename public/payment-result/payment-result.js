@@ -116,6 +116,17 @@
                 return;
             }
 
+            // A declined attempt still reads REQUIRES_PAYMENT_METHOD upstream;
+            // tell the shopper their card was refused rather than implying
+            // nothing happened.
+            if (data.declined) {
+                render({
+                    variant: 'error',
+                    title: 'Payment declined',
+                    message:
+                        'Your card was declined and you have not been charged. Try a different card, or contact your bank.',
+                });
+            } else {
             render(
                 OUTCOMES[data.status] || {
                     variant: 'pending',
@@ -125,6 +136,7 @@
                         .replace(/_/g, ' ')}.`
                 }
             );
+            }
 
             document.getElementById('meta-amount').textContent = formatAmount(
                 data.amount,

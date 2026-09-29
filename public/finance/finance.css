@@ -1,0 +1,323 @@
+/* Finance page — balances, settlements, transactions, reports.
+   Table, pill and empty-state styling come from /assets/table.css */
+
+/* ============ Tabs ============ */
+.finance-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.finance-tab {
+    padding: 10px 16px;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.55);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.finance-tab:hover { color: #FFFFFF; }
+
+.finance-tab.active {
+    color: #FFD200;
+    border-bottom-color: #FFD200;
+    font-weight: 600;
+}
+
+.tab-panel[hidden] { display: none; }
+
+/* ============ Panel controls ============ */
+.panel-controls {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+}
+
+.panel-meta {
+    margin-left: auto;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.field-inline {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.field-inline label {
+    font-size: 11.5px;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.field-inline input,
+.field-inline select {
+    height: 34px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 0 9px;
+    font-size: 12.5px;
+    font-family: inherit;
+    color: #FFFFFF;
+    outline: none;
+}
+
+.field-inline input:focus,
+.field-inline select:focus { border-color: #FFD200; }
+.field-inline select option { background: #14274E; }
+.field-inline input::-webkit-calendar-picker-indicator { filter: invert(0.7); }
+
+/* ============ Balances ============ */
+.balance-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 14px;
+}
+
+.balance-card {
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 18px 20px;
+    transition: border-color 0.2s, background 0.2s;
+}
+
+.balance-card:hover {
+    background: rgba(255, 255, 255, 0.055);
+    border-color: rgba(255, 255, 255, 0.14);
+}
+
+.balance-card.is-skeleton {
+    min-height: 150px;
+    background: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.03) 100%);
+    background-size: 200% 100%;
+    animation: skelShimmer 1.6s ease-in-out infinite;
+}
+
+.balance-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.balance-currency {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: #FFD200;
+}
+
+.balance-type {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    color: rgba(255, 255, 255, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
+    padding: 1px 6px;
+}
+
+.balance-available {
+    font-size: 24px;
+    font-weight: 700;
+    color: #FFFFFF;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.4px;
+}
+
+.balance-available-label {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: rgba(255, 255, 255, 0.4);
+    margin-bottom: 14px;
+}
+
+.balance-breakdown {
+    display: grid;
+    gap: 6px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.balance-breakdown > div {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+}
+
+.balance-breakdown dt { color: rgba(255, 255, 255, 0.45); }
+.balance-breakdown dd { color: rgba(255, 255, 255, 0.85); font-variant-numeric: tabular-nums; }
+
+/* ============ Settlement totals ============ */
+.settle-totals {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+}
+
+.settle-totals[hidden] { display: none; }
+
+.settle-total {
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 10px 14px;
+}
+
+.settle-total-currency {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    color: #FFD200;
+}
+
+.settle-total-net {
+    font-size: 15px;
+    font-weight: 700;
+    color: #FFFFFF;
+    font-variant-numeric: tabular-nums;
+}
+
+.settle-total-fee {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+/* ============ Amount cells ============ */
+.amount-cell {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.amount-cell.fee { color: #FFB94B; font-weight: 500; }
+.amount-cell.net { color: #7FE3B5; }
+
+.mono {
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    color: rgba(255, 255, 255, 0.55);
+}
+
+/* ============ Expandable settlement rows ============ */
+.settle-row { cursor: pointer; }
+.settle-row.is-open { background: rgba(255, 210, 0, 0.05); }
+
+.settle-detail > td { padding: 0 !important; background: rgba(0, 0, 0, 0.22); }
+
+.settle-detail-body {
+    padding: 14px 20px;
+    font-size: 12.5px;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.inner-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.inner-table th {
+    text-align: left;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: rgba(255, 255, 255, 0.38);
+    padding: 4px 10px;
+    font-weight: 600;
+}
+
+.inner-table td {
+    padding: 6px 10px;
+    font-size: 12.5px;
+    color: rgba(255, 255, 255, 0.82);
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* ============ Reports ============ */
+.report-form {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 20px 22px;
+    margin-bottom: 20px;
+}
+
+.report-form-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.report-form-sub {
+    font-size: 12.5px;
+    color: rgba(255, 255, 255, 0.45);
+    margin-bottom: 18px;
+}
+
+.report-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 14px;
+    margin-bottom: 16px;
+    align-items: start;
+}
+
+.report-grid .field label {
+    display: block;
+    font-size: 11.5px;
+    color: rgba(255, 255, 255, 0.55);
+    margin-bottom: 6px;
+}
+
+.report-grid select,
+.report-grid input {
+    width: 100%;
+    height: 38px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 0 10px;
+    font-size: 13px;
+    font-family: inherit;
+    color: #FFFFFF;
+    outline: none;
+}
+
+.report-grid select[multiple] {
+    height: auto;
+    padding: 6px;
+}
+
+.report-grid select:focus,
+.report-grid input:focus { border-color: #FFD200; }
+.report-grid select option { background: #14274E; }
+.report-grid input::-webkit-calendar-picker-indicator { filter: invert(0.7); }
+
+.field-note {
+    font-size: 11px;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.35);
+    margin-top: 6px;
+}
+
+.report-list-title {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+@keyframes skelShimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}

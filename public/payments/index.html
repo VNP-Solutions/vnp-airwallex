@@ -36,6 +36,34 @@
                         </svg>
                         Refresh
                     </button>
+                    <button class="btn btn-danger" type="button" id="delete-selected-btn" hidden>
+                        <svg viewBox="0 0 16 16" fill="none">
+                            <path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        Delete <span id="delete-count"></span>
+                    </button>
+                    <div class="menu-wrap" id="export-wrap">
+                        <button class="btn btn-ghost" type="button" id="export-btn">
+                            <svg viewBox="0 0 16 16" fill="none">
+                                <path d="M8 2v8M4.5 6.5L8 10l3.5-3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M2.5 11v1.5A1.5 1.5 0 0 0 4 14h8a1.5 1.5 0 0 0 1.5-1.5V11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                            </svg>
+                            Export
+                            <svg class="menu-chevron" viewBox="0 0 12 12" fill="none">
+                                <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
+                        <div class="menu" id="export-menu" hidden>
+                            <button class="menu-option" type="button" data-export="all">
+                                Export all matching
+                                <span id="export-all-hint">Everything the current filters match</span>
+                            </button>
+                            <button class="menu-option" type="button" data-export="selected" id="export-selected-option">
+                                Export selected
+                                <span id="export-selected-hint">No rows selected</span>
+                            </button>
+                        </div>
+                    </div>
                     <button class="btn btn-ghost" type="button" id="bulk-create-btn">
                         <svg viewBox="0 0 16 16" fill="none">
                             <path d="M8 10V2M4.5 5.5L8 2l3.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
@@ -88,7 +116,19 @@
                     </table>
                 </div>
                 <div class="filtered-totals" id="filtered-totals" hidden></div>
-                <div class="pagination-bar" id="payments-pagination" hidden></div>
+                <div class="pagination-bar" id="payments-pagination" hidden>
+                    <div class="page-size">
+                        <label for="page-size-select">Rows per page</label>
+                        <select id="page-size-select">
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                            <option value="200">200</option>
+                        </select>
+                    </div>
+                    <div class="pagination-info" id="pagination-info"></div>
+                    <div class="pagination-controls" id="pagination-controls"></div>
+                </div>
             </section>
         </main>
     </div>
@@ -155,8 +195,14 @@
                 </div>
 
                 <div class="field">
+                    <label>Order ID <span class="field-hint">your reservation ID — must be unique</span></label>
+                    <input type="text" name="merchant_order_id" id="order-id-input" placeholder="e.g. 2497667019" autocomplete="off">
+                    <p class="order-id-status" id="order-id-status" hidden></p>
+                </div>
+
+                <div class="field">
                     <label>Description <span class="field-hint">optional, internal</span></label>
-                    <input type="text" name="description" placeholder="e.g. Hotel booking — 3 nights" autocomplete="off">
+                    <input type="text" name="description" placeholder="Defaults to the Order ID" autocomplete="off">
                 </div>
 
                 <div class="descriptor-preview" id="descriptor-preview">
@@ -205,7 +251,7 @@
                     </svg>
                 </div>
                 <h2 class="modal-title">Bulk create payments</h2>
-                <p class="modal-sub">Each row references a hotel by OTA ID and bills under that hotel's descriptor. The file is checked in full before anything is created — card columns are never read.</p>
+                <p class="modal-sub">Each row references a hotel by OTA ID and bills under that hotel's descriptor. Card details are stored encrypted for the automated run. The file is checked in full before anything is created.</p>
             </header>
 
             <div class="bulk-body">
@@ -225,7 +271,7 @@
                             <path d="M4 16v2.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
                         </svg>
                         <p class="dropzone-text" id="dropzone-text">Drop a CSV or Excel file here</p>
-                        <p class="dropzone-hint" id="dropzone-hint">.csv or .xlsx, up to 500 payments</p>
+                        <p class="dropzone-hint" id="dropzone-hint">.csv or .xlsx — no row limit</p>
                     </div>
                 </label>
 
@@ -255,6 +301,35 @@
                 <button type="button" class="btn btn-primary" id="bulk-submit" disabled>
                     <span class="btn-spinner" aria-hidden="true"></span>
                     <span class="btn-label">Create payments</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ Delete confirmation ============ -->
+    <div class="modal-backdrop" id="delete-modal" hidden>
+        <div class="modal" role="dialog" aria-modal="true">
+            <button class="modal-close" type="button" data-close="delete" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </button>
+            <header class="modal-header">
+                <div class="modal-icon danger">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l.9 12a1.5 1.5 0 0 0 1.5 1.4h6.2a1.5 1.5 0 0 0 1.5-1.4l.9-12" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </div>
+                <h2 class="modal-title" id="delete-title">Delete payments</h2>
+                <p class="modal-sub" id="delete-sub"></p>
+            </header>
+
+            <div class="delete-body" id="delete-body"></div>
+            <p class="form-error" id="delete-error" role="alert" hidden></p>
+
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" data-close="delete">Cancel</button>
+                <button type="button" class="btn btn-danger" id="delete-confirm">
+                    <span class="btn-spinner" aria-hidden="true"></span>
+                    <span class="btn-label">Delete</span>
                 </button>
             </div>
         </div>

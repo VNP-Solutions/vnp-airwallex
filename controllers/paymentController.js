@@ -16,6 +16,7 @@ async function createPayment(req, res, next) {
             checkout_mode,
             metadata,
             request_id,
+            merchant_order_id,
         } = req.body || {};
 
         if (amount === undefined || amount === null || amount === '') {
@@ -38,6 +39,7 @@ async function createPayment(req, res, next) {
             checkout_mode,
             metadata,
             request_id,
+            merchant_order_id,
             created_by: req.userId,
         });
 
@@ -171,6 +173,7 @@ async function validateBulkPayments(req, res, next) {
         }
         const result = await paymentService.validateBulkPayments(upload, {
             autoCreateHotels: req.query.auto_create_hotels !== 'false',
+            skipCardChecks: req.query.skip_card_checks === 'true',
         });
         // Internal detail; the client gets `preview` and `hotels_to_create`.
         delete result.prepared;
@@ -189,8 +192,12 @@ async function startBulkPayments(req, res, next) {
         }
         const job = await paymentService.startBulkPayments(upload, {
             userId: req.userId,
+            // Sent by the browser so the batch is identifiable by its file.
+            fileName: req.query.file_name || 'upload',
+            fileSize: Buffer.isBuffer(upload) ? upload.length : String(upload).length,
             checkout_mode: req.query.checkout_mode || 'embedded_elements',
             autoCreateHotels: req.query.auto_create_hotels !== 'false',
+            skipCardChecks: req.query.skip_card_checks === 'true',
         });
         return res.status(202).json(job);
     } catch (err) {
@@ -201,17 +208,92 @@ async function startBulkPayments(req, res, next) {
     }
 }
 
-async function getBulkJob(req, res, next) {
+async function getBatch(req, res, next) {
     try {
-        return res.json(await paymentService.getBulkJob(req.params.jobId));
+        return res.json(await paymentService.getBatch(req.params.jobId));
     } catch (err) {
         return next(err);
     }
 }
 
-async function listBulkJobs(req, res, next) {
+async function listBatches(req, res, next) {
     try {
-        return res.json(await paymentService.listBulkJobs({ limit: req.query.limit }));
+        return res.json(await paymentService.listBatches({ limit: req.query.limit }));
+    } catch (err) {
+        return next(err);
+    }
+}
+
+/**
+ * Is this order id free? Backs the inline check in the new-payment form so a
+ * clash is caught while typing rather than on submit.
+ */
+async function checkOrderId(req, res, next) {
+    try {
+        const value = paymentService.normaliseOrderId(req.query.value);
+        if (!value) return res.json({ value: '', available: null });
+        if (value.length > paymentService.ORDER_ID_MAX_LENGTH) {
+            return res.json({
+                value,
+                available: false,
+                reason: `Must be ${paymentService.ORDER_ID_MAX_LENGTH} characters or fewer`,
+            });
+        }
+        await paymentService.assertOrderIdFree(value);
+        return res.json({ value, available: true });
+    } catch (err) {
+        if (err.statusCode === 409) {
+            return res.json({ value: req.query.value, available: false, reason: err.message });
+        }
+        return next(err);
+    }
+}
+
+// ============== Delete + export ==============
+async function deletePayment(req, res, next) {
+    try {
+        const result = await paymentService.deletePayments([req.params.id], {
+            force: req.query.force === 'true',
+        });
+        // A single refusal is a 409, not a success with a buried error.
+        if (result.deleted === 0 && result.refused > 0) {
+            return res.status(409).json({ error: result.results[0].error, ...result });
+        }
+        if (result.deleted === 0) {
+            return res.status(404).json({ error: 'Payment not found' });
+        }
+        return res.json(result);
+    } catch (err) {
+        return next(err);
+    }
+}
+
+async function bulkDeletePayments(req, res, next) {
+    try {
+        const body = req.body || {};
+        const result = await paymentService.deletePayments(body.ids, {
+            force: body.force === true,
+        });
+        return res.json(result);
+    } catch (err) {
+        return next(err);
+    }
+}
+
+async function exportPayments(req, res, next) {
+    try {
+        const body = req.body || {};
+        const { csv, count } = await paymentService.exportPayments({
+            ids: body.ids,
+            filters: body.filters,
+            search: body.search,
+            sort: body.sort,
+        });
+        const stamp = new Date().toISOString().slice(0, 10);
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="payments-${stamp}.csv"`);
+        res.setHeader('X-Export-Count', String(count));
+        return res.send(csv);
     } catch (err) {
         return next(err);
     }
@@ -235,19 +317,33 @@ async function getStats(req, res, next) {
  */
 async function getPublicStatus(req, res, next) {
     try {
-        const payment = await paymentService.syncPayment(req.params.orderId).catch(
-            async (err) => {
+        // Resolve by the unguessable token first, then sync through the normal
+        // path so the status shown is authoritative.
+        const known = await paymentService.getPaymentByPublicToken(req.params.orderId);
+        const payment = await paymentService
+            .syncPayment(known.payment_intent_id)
+            .catch(async (err) => {
                 // If Airwallex is unreachable, fall back to what we last stored
                 // rather than failing the shopper's return page outright.
                 if (err.statusCode === 404) throw err;
                 console.error('Return-page sync failed:', err.message);
-                return paymentService.getPayment(req.params.orderId);
-            }
-        );
+                return known;
+            });
+
+        // A decline leaves the intent at REQUIRES_PAYMENT_METHOD, so without
+        // this flag the return page cannot tell "declined" from "never tried".
+        // The reason itself is deliberately withheld: this endpoint is
+        // unauthenticated, and enumerating decline codes helps card testers.
+        const declined =
+            payment.last_attempt_status === 'FAILED' &&
+            !['SUCCEEDED', 'REQUIRES_CAPTURE'].includes(payment.status);
 
         return res.json({
+            // The operator's own order id, safe to show: the caller already
+            // proved knowledge of the token to get here.
             merchant_order_id: payment.merchant_order_id,
             status: payment.status,
+            declined,
             amount: payment.amount,
             currency: payment.currency,
             captured_amount: payment.captured_amount,
@@ -304,12 +400,16 @@ async function handleWebhook(req, res) {
 
 module.exports = {
     createPayment,
+    checkOrderId,
+    deletePayment,
+    bulkDeletePayments,
+    exportPayments,
     getCheckoutSession,
     bulkTemplate,
     validateBulkPayments,
     startBulkPayments,
-    getBulkJob,
-    listBulkJobs,
+    getBatch,
+    listBatches,
     queryPayments,
     distinctValues,
     getAnalytics,

@@ -15,7 +15,7 @@ const spreadsheetBody = express.raw({
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'application/octet-stream',
     ],
-    limit: '10mb',
+    limit: '64mb',
 });
 
 router.get('/templates/import', requireAuth, hotelController.importTemplate);

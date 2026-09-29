@@ -21,6 +21,18 @@
             icon: '<svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>',
         },
         {
+            key: 'batches',
+            label: 'Batches',
+            href: '/batches',
+            icon: '<svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="20" cy="6" r="1.6"/></svg>',
+        },
+        {
+            key: 'finance',
+            label: 'Finance',
+            href: '/finance',
+            icon: '<svg viewBox="0 0 24 24"><path d="M3 7h18v12H3z"/><path d="M3 11h18"/><circle cx="17" cy="15" r="1.4"/></svg>',
+        },
+        {
             key: 'users',
             label: 'Users',
             href: '/users',

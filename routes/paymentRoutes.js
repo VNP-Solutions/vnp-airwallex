@@ -15,7 +15,7 @@ const spreadsheetBody = express.raw({
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'application/octet-stream',
     ],
-    limit: '10mb',
+    limit: '64mb',
 });
 
 // Public — Airwallex posts here; authenticated by HMAC signature, not JWT.
@@ -34,14 +34,19 @@ router.get('/analytics', requireAuth, paymentController.getAnalytics);
 router.get('/bulk/template', requireAuth, paymentController.bulkTemplate);
 router.post('/bulk/validate', requireAuth, spreadsheetBody, paymentController.validateBulkPayments);
 router.post('/bulk/create', requireAuth, spreadsheetBody, paymentController.startBulkPayments);
-router.get('/bulk/jobs', requireAuth, paymentController.listBulkJobs);
-router.get('/bulk/jobs/:jobId', requireAuth, paymentController.getBulkJob);
+router.get('/bulk/jobs', requireAuth, paymentController.listBatches);
+router.get('/bulk/jobs/:jobId', requireAuth, paymentController.getBatch);
 router.post('/query', requireAuth, paymentController.queryPayments);
+router.get('/order-id-available', requireAuth, paymentController.checkOrderId);
+router.post('/export', requireAuth, paymentController.exportPayments);
+// Declared before /:id so "bulk-delete" is never read as a payment id.
+router.post('/bulk-delete', requireAuth, paymentController.bulkDeletePayments);
 // `field` may contain a dot (customer.email), so match the rest of the path.
 router.get('/distinct/:field', requireAuth, paymentController.distinctValues);
 router.get('/:id', requireAuth, paymentController.getPayment);
 router.post('/:id/sync', requireAuth, paymentController.syncPayment);
 router.post('/:id/checkout', requireAuth, paymentController.getCheckoutSession);
 router.post('/:id/cancel', requireAuth, paymentController.cancelPayment);
+router.delete('/:id', requireAuth, paymentController.deletePayment);
 
 module.exports = router;

@@ -52,9 +52,11 @@
     document.getElementById('summary-descriptor').textContent = handoff.descriptor || '—';
     summaryEl.hidden = false;
 
+    // The return page is keyed on the unguessable token, not the order id —
+    // order ids are operator-chosen reservation numbers and run in sequence.
     function goToResult(outcome) {
         window.location.href = `/payment-result?order=${encodeURIComponent(
-            handoff.merchant_order_id
+            handoff.public_token
         )}&outcome=${outcome}`;
     }
 
@@ -80,7 +82,7 @@
     async function resolveError(message) {
         try {
             const res = await fetch(
-                `/api/payments/status/${encodeURIComponent(handoff.merchant_order_id)}`
+                `/api/payments/status/${encodeURIComponent(handoff.public_token)}`
             );
             if (res.ok) {
                 const data = await res.json();

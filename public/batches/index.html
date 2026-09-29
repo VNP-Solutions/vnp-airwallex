@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batches — VNP &lt;&gt; AIRWALLEX</title>
+    <script>
+        if (!(localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token'))) {
+            window.location.replace('/login');
+        }
+    </script>
+    <link rel="stylesheet" href="/assets/sidebar.css">
+    <link rel="stylesheet" href="/assets/dashboard.css">
+    <link rel="stylesheet" href="/assets/table.css">
+    <link rel="stylesheet" href="/assets/bulk.css">
+    <link rel="stylesheet" href="batches.css">
+</head>
+<body>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+    <div class="app-shell">
+        <div data-sidebar-mount data-active="batches"></div>
+
+        <main class="main-content">
+            <header class="page-header">
+                <div>
+                    <h1 class="page-title">Batches</h1>
+                    <p class="page-subtitle">Uploaded payment files, their intents, and automated payment runs.</p>
+                </div>
+                <div class="page-actions">
+                    <button class="btn btn-ghost" type="button" id="refresh-btn">Refresh</button>
+                    <a class="btn btn-primary" href="/payments?bulk=1">Upload a batch</a>
+                </div>
+            </header>
+
+            <div class="batch-list" id="batch-list"></div>
+        </main>
+    </div>
+
+    <!-- ============ Run confirmation ============ -->
+    <div class="modal-backdrop" id="run-modal" hidden>
+        <div class="modal" role="dialog" aria-modal="true">
+            <button class="modal-close" type="button" data-close="run" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </button>
+            <header class="modal-header">
+                <div class="modal-icon accent">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M6 4l12 8-12 8V4z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+                    </svg>
+                </div>
+                <h2 class="modal-title">Pay this batch automatically</h2>
+                <p class="modal-sub" id="run-sub"></p>
+            </header>
+
+            <div class="run-body">
+                <label class="upsert-toggle">
+                    <input type="checkbox" id="run-headless" checked>
+                    <span class="checkbox-custom"></span>
+                    <span>Run headless. Untick to watch the browser work — useful the first time, or when diagnosing a failure.</span>
+                </label>
+                <div class="run-warning" id="run-warning"></div>
+            </div>
+
+            <p class="form-error" id="run-error" role="alert" hidden></p>
+
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" data-close="run">Cancel</button>
+                <button type="button" class="btn btn-primary" id="run-confirm">
+                    <span class="btn-spinner" aria-hidden="true"></span>
+                    <span class="btn-label">Start paying</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ Delete confirmation ============ -->
+    <div class="modal-backdrop" id="delete-modal" hidden>
+        <div class="modal" role="dialog" aria-modal="true">
+            <button class="modal-close" type="button" data-close="delete" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </button>
+            <header class="modal-header">
+                <div class="modal-icon danger">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l.9 12a1.5 1.5 0 0 0 1.5 1.4h6.2a1.5 1.5 0 0 0 1.5-1.4l.9-12" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </div>
+                <h2 class="modal-title">Delete this batch?</h2>
+                <p class="modal-sub" id="delete-sub"></p>
+            </header>
+            <div class="run-body" id="delete-body"></div>
+            <p class="form-error" id="delete-error" role="alert" hidden></p>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" data-close="delete">Cancel</button>
+                <button type="button" class="btn btn-danger" id="delete-confirm">
+                    <span class="btn-spinner" aria-hidden="true"></span>
+                    <span class="btn-label">Delete batch</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/assets/sidebar.js"></script>
+    <script src="/assets/bulk.js"></script>
+    <script src="batches.js"></script>
+</body>
+</html>

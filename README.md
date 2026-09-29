@@ -175,6 +175,28 @@ drag this service into a compliance scope it is nowhere near, so `Card Number`,
 never assumed those cards were charged. Card data reaches Airwallex only from
 the shopper's browser, through their iframe.
 
+### Order IDs are yours
+
+`merchant_order_id` is the reservation id. It is entered in the payment form,
+carried by the bulk file's optional `Order ID` column, and **defaults to the
+reservation id** (the `Reservation ID` column in bulk, the description in the
+form) so it is never typed twice. Only when all of those are blank does it fall
+back to a generated `vnp_<ms>_<rand>`.
+
+**Airwallex does not enforce uniqueness on it** — verified: creating a second
+intent with an order id already in use succeeds there. So the guard is entirely
+ours: a unique index on the collection, a pre-check that answers
+`409 Order ID "…" is already used by another payment (…)` instead of a raw
+duplicate-key error, and `GET /api/payments/order-id-available` behind the form
+field so a clash shows up while typing. Bulk catches both the same id twice in
+one file and an id already used by an existing payment.
+
+Because order ids are sequential reservation numbers, they are **not** the key
+for the return page. Each payment also carries a random `public_token`, and that
+is what `/payment-result` and the unauthenticated status endpoint use — a
+guessable key there would expose every payment's amount, hotel and outcome to
+anyone who could reach the server.
+
 ### Re-uploading a file is safe
 
 The **reservation id is the Airwallex `request_id`** — the idempotency key — so
@@ -273,6 +295,148 @@ the workbook and the same sheet saved as CSV yields byte-identical rows. Every
 row still passes through the dry run before anything commits, so a misread would
 surface as a visible amount or descriptor rather than a silent charge. If a file
 ever defeats it, saving as CSV is the fallback.
+
+## Batches and automated payment
+
+A `/batches` page holds every uploaded payment file: how many intents it
+created, how many are still owed, and any automated payment run against it.
+
+**Delete** removes a batch and everything it produced — cancelling each unpaid
+intent at Airwallex first, so nothing payable is left behind pointing at a
+record that no longer exists. A batch containing payments that took money is
+refused unless explicitly forced.
+
+**Pay individually** links to `/payments?batch=…`, the normal table scoped to
+that file. **Pay in bulk** starts the automated run. **Upload a batch** opens the
+bulk-create dialog directly via `/payments?bulk=1`.
+
+A batch is named after the uploaded file, and every payment carries
+`batch_name`, so the payments table has a **Batch** column filter and the export
+includes it. The name is denormalised onto the payment because an ObjectId is
+unreadable in a filter list and a batch's name never changes after upload.
+
+### No row limit, and Amex is excluded
+
+A payment file has **no row cap** — a booking export is however long it is, and
+creation already runs in the background with per-row progress. The only ceiling
+is a runaway guard in the xlsx parser (250k rows).
+
+**American Express cards are not charged.** Those rows are *skipped and
+reported*, not treated as errors: rejecting a whole day's export over cards that
+were never going to be charged would make the file unusable. The dialog lists
+what was left out, and `BLOCKED_CARD_BRANDS` in `paymentService.js` is the list
+to change if that ever shifts.
+
+Card numbers are Luhn-checked, and a failure explains itself in terms of the
+brand's real digit count (`Amex numbers are 15 digits — this one has 16`) rather
+than just "invalid". Pass `skip_card_checks=true` to bypass the checksum if a
+closed-loop card scheme ever needs it.
+
+### Stored cards
+
+The upload template carries the virtual card used to pay each reservation
+(`Card Number`, `Expiry date`, `CVV`) plus a `Customer` column that becomes both
+the Airwallex customer name and the cardholder name. `Guest name` is read and
+discarded — it is the hotel guest, not the payer.
+
+Card values are encrypted at rest with **AES-256-GCM** (`services/cardVault.js`,
+key in `CARD_ENCRYPTION_KEY`). A fresh IV per value means identical card numbers
+do not produce identical ciphertext, and the authentication tag means a tampered
+record fails to decrypt rather than returning garbage. Only **last four and
+brand** are held in clear. The secret fields are `select: false`, so they are
+absent from every ordinary query and never appear in an API response.
+
+Expiries are normalised to `mm/yy` from whatever the spreadsheet produced —
+Excel serials (`47362` → `09/29`), ISO dates, `m/yyyy`, or bare `mmyy`. Card
+numbers are Luhn-checked and expired cards rejected at validation, so a bad row
+is caught before a run rather than during one.
+
+**Cards are purged the moment a payment succeeds** — the encrypted PAN, expiry
+and CVV are unset and only `last4` remains. Keeping credentials past the charge
+they were stored for widens the blast radius of a breach for no benefit.
+
+### The automated run
+
+Airwallex's card fields live in their own iframe and never expose the PAN to our
+page — that is the point of the embedded element. So paying a stored card means
+driving a real browser: open our own `/checkout` for the intent, type into their
+iframe, click Pay. The automation uses the same page a human operator does.
+
+Fields are **cleared before typing**. Airwallex pre-fills the cardholder name
+from the customer on the intent, so typing straight in produced
+`Expedia GroupExpedia Group`. A field already holding the right value is left
+alone rather than retyped.
+
+Pacing is deliberate, not decoration. Card networks and risk engines both treat
+a burst of identical, instantaneous submissions as suspicious, so keystrokes
+carry variable delay with occasional pauses, and payments run one at a time with
+2.5–6.5s between them.
+
+Headless by default; untick it to watch the browser work, which is the fastest
+way to diagnose a failure.
+
+Two details worth knowing, both found by testing rather than reading:
+
+- **The Pay button is inside Airwallex's iframe and has no id, name or test
+  id** — only the label "Pay". It is matched on text across every frame.
+- **Capture lags the click.** Judging the outcome on the first read marks
+  genuinely successful payments as failures, so the runner polls for a settled
+  status (or a definitive decline) before deciding.
+
+Runs live in memory, so a restart abandons them; `failStaleRuns()` marks those
+failed at boot rather than leaving a progress bar stuck forever.
+
+## Finance
+
+`/finance` reads Airwallex's own ledger live — nothing here is mirrored
+locally, because unlike payments they are the only source of truth for it.
+
+**Balances** — `GET /api/v1/balances/current` per currency, with available,
+pending, reserved and total. Airwallex returns every currency the account *can*
+hold (46, nearly all zero), so empty ones are hidden behind a toggle.
+
+**Settlements** — Airwallex has **no batch-level endpoint**. A settlement batch
+is simply the set of `financial_transactions` sharing a `batch_id`, so the
+grouping happens in `financeService`: gross, fees and net summed per batch and
+per currency, with a row expanding in place to show the entries behind it. A
+batch counts as settled only once every entry in it is.
+
+**Transactions** — the raw ledger (payments, fees, payouts, conversions,
+reserve holds and releases) with currency and status filters, exportable as CSV.
+
+### Airwallex's own reports
+
+`/api/v1/finance/financial_reports` generates the files Airwallex produces for
+reconciliation. The flow is asynchronous: create → poll until `COMPLETED` →
+download. The page does that polling for you.
+
+Two things worth knowing, both found by probing rather than from the docs:
+
+- **Type and format do not combine freely.** Asking for an unsupported pair
+  fails with `File format CSV not supported`, so the UI only offers what works:
+
+  | Report | CSV | Excel | PDF |
+  | --- | --- | --- | --- |
+  | Settlement | yes | yes | — |
+  | Transaction reconciliation | yes | yes | — |
+  | Balance activity | yes | yes | yes |
+  | Online payments | — | yes | — |
+  | Account statement | — | — | yes |
+
+  `AGGREGATED_SETTLEMENT_REPORT` is documented but answers
+  "not yet supported" in sandbox.
+
+- **A CSV settlement report is actually a ZIP** of per-currency files
+  (`Settlement_Details`, `Settlement_Summary`, `Fee_Details`, `Fee_Summary`),
+  served under a `text/plain` content type. The download corrects the type from
+  the filename, otherwise the browser saves a `.zip` it will not open.
+
+Downloads are **proxied** through our server rather than redirected, because
+fetching the file needs our Airwallex bearer token and that must never reach the
+browser.
+
+The settlement and fee files carry our own `Order ID` and `Request ID` columns,
+so a settlement line reconciles straight back to the payment that produced it.
 
 ## Payments (Airwallex)
 
@@ -441,6 +605,36 @@ Follow the existing seam — a service under `services/`, a controller under
 `/assets/table.css`, which carries the shared table, pill, modal and pagination
 styling.
 
+## Switching between sandbox and live
+
+Change **one value**:
+
+```
+AIRWALLEX_MODE=sandbox     # or: live
+```
+
+The base URL, the browser SDK env and the credentials are all derived from it,
+so they cannot disagree — which is how a process ends up holding live keys
+against a sandbox host, or quietly charging real cards during a test.
+
+The server announces the active account at boot:
+
+```
+Airwallex: SANDBOX  https://api.sandbox.airwallex.com  client GXeOlP1d…  sdk=demo
+```
+
+and in live mode adds `** LIVE MODE — payments created here charge real cards **`.
+`GET /api/finance/environment` returns the same thing for the UI.
+
+Two things that bite when switching:
+
+- **Nodemon does not watch `.env`** (`watching extensions: js,mjs,cjs,json`), so
+  editing it does not restart the process — `dotenv` reads the file once at
+  boot. Restart by hand, or run `nodemon --watch . --ext js,json,env server.js`.
+- **The two modes share one database.** Sandbox and live payments land in the
+  same collection. Point `DATABASE_URI` at a different database per mode if you
+  intend to keep testing once live traffic starts.
+
 ## Environment
 
 `.env` is git-ignored; `.env.example` lists the required keys. `DATABASE_URI`
@@ -450,7 +644,9 @@ reference app.
 | Key | Purpose |
 | --- | --- |
 | `AIRWALLEX_CLIENT_ID` / `AIRWALLEX_API_KEY` | API credentials from the Airwallex dashboard |
-| `AIRWALLEX_BASE_URL` | `https://api-demo.airwallex.com` or `https://api.sandbox.airwallex.com` for test, `https://api.airwallex.com` for live |
-| `AIRWALLEX_ENV` | `demo` or `prod` — which environment the browser SDK talks to. Derived from the base URL when unset |
+| `AIRWALLEX_MODE` | **`sandbox` or `live`** — the one value to change when switching accounts. The base URL, SDK env and credentials all follow it |
+| `AIRWALLEX_SANDBOX_*` / `AIRWALLEX_LIVE_*` | The two credential sets, held side by side |
+| `AIRWALLEX_BASE_URL` / `AIRWALLEX_ENV` | Legacy flat config, still honoured when no mode is set |
+| `CARD_ENCRYPTION_KEY` | 32 bytes as hex (`openssl rand -hex 32`) for encrypting stored card details |
 | `AIRWALLEX_DESCRIPTOR_PREFIX` | Default statement-descriptor prefix |
 | `AIRWALLEX_WEBHOOK_SECRET` | Signing secret for the notification URL. Webhooks are rejected until this is set |
