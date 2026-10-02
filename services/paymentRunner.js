@@ -340,6 +340,110 @@ async function payOne(browser, { baseUrl, handoff, card, timeoutMs, say = () => 
 }
 
 /**
+ * Pay one payment through the same browser automation the batches use.
+ *
+ * Single and bulk deliberately share this path. Airwallex's card element
+ * records the IP of whoever is filling it in, so a payment typed by an operator
+ * carries their address while a batch carries the server's — two different risk
+ * profiles for what is the same merchant taking the same kind of card. Driving
+ * both from here means every payment leaves from the same place.
+ *
+ * Unlike a batch run this is awaited: it is one payment, the operator is
+ * watching, and the answer is worth the half minute.
+ */
+async function paySingle(paymentId, { headless = true, baseUrl } = {}) {
+    const key = `single:${paymentId}`;
+    if (activeRuns.has(key)) {
+        const err = new Error('This payment is already being paid');
+        err.statusCode = 409;
+        throw err;
+    }
+
+    if (!cardVault.isConfigured()) {
+        const err = new Error(
+            'CARD_ENCRYPTION_KEY is not set on this server — the stored card cannot be decrypted'
+        );
+        err.statusCode = 409;
+        throw err;
+    }
+
+    const { payment, card, reason } = await batchService.getPaymentWithCard(paymentId);
+
+    if (!batchService.PAYABLE_STATUSES.includes(payment.status)) {
+        const err = new Error(
+            `This payment is ${payment.status
+                .toLowerCase()
+                .replace(/_/g, ' ')} and cannot be paid`
+        );
+        err.statusCode = 409;
+        throw err;
+    }
+    if (!card) {
+        const err = new Error(reason || 'No card stored for this payment');
+        err.statusCode = 409;
+        throw err;
+    }
+
+    const label = payment.description || payment.merchant_order_id;
+    const say = (message) => log(label, message);
+
+    activeRuns.set(key, { cancelled: false });
+    const puppeteer = require('puppeteer');
+    let browser = null;
+
+    try {
+        say(`single payment — ${payment.amount} ${payment.currency}, headless=${headless}`);
+        browser = await puppeteer.launch({
+            headless,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-blink-features=AutomationControlled',
+            ],
+            defaultViewport: null,
+        });
+
+        // A fresh client_secret, and a status re-check: a payment settled
+        // elsewhere since the page loaded is refused rather than charged twice.
+        const { checkout } = await paymentService.getCheckoutSession(
+            payment.payment_intent_id
+        );
+
+        const attempt = await payOne(browser, {
+            baseUrl,
+            handoff: checkout,
+            card,
+            timeoutMs: 60000,
+            say,
+        });
+
+        say('confirming with Airwallex');
+        const outcome = await settleOutcome(payment.payment_intent_id);
+
+        if (outcome.settled) {
+            say(`PAID — ${outcome.status}`);
+            await batchService.clearCardData(payment._id);
+            await clearStaleError(payment._id);
+            return { ok: true, status: outcome.status, payment_intent_id: payment.payment_intent_id };
+        }
+
+        const seen = attempt && attempt.seen;
+        const why =
+            outcome.generic && seen && seen.message ? seen.message : outcome.reason;
+        say(`FAILED — ${why}`);
+        await recordFailure(payment, why);
+        return { ok: false, reason: why, payment_intent_id: payment.payment_intent_id };
+    } catch (err) {
+        say(`ERROR — ${err.message}`);
+        await recordFailure(payment, err.message).catch(() => {});
+        throw err;
+    } finally {
+        if (browser) await browser.close().catch(() => {});
+        activeRuns.delete(key);
+    }
+}
+
+/**
  * Pay every outstanding payment in a batch.
  *
  * Progress is written to the batch after each row so the page shows real
@@ -707,4 +811,4 @@ async function failStaleRuns() {
     return result.modifiedCount || 0;
 }
 
-module.exports = { runBatch, stopRun, isRunning, failStaleRuns };
+module.exports = { runBatch, paySingle, stopRun, isRunning, failStaleRuns };

@@ -1,4 +1,5 @@
 const paymentService = require('../services/paymentService');
+const paymentRunner = require('../services/paymentRunner');
 const airwallex = require('../services/airwallexService');
 
 async function createPayment(req, res, next) {
@@ -17,6 +18,7 @@ async function createPayment(req, res, next) {
             metadata,
             request_id,
             merchant_order_id,
+            card,
         } = req.body || {};
 
         if (amount === undefined || amount === null || amount === '') {
@@ -24,6 +26,15 @@ async function createPayment(req, res, next) {
         }
         if (!currency) {
             return res.status(400).json({ error: 'currency is required' });
+        }
+
+        // Validated and normalised here, before anything reaches Airwallex, so
+        // a mistyped card is a 400 rather than an intent nobody can pay.
+        let storedCard;
+        try {
+            storedCard = paymentService.prepareCard(card);
+        } catch (err) {
+            return res.status(400).json({ error: err.message });
         }
 
         const { payment, checkout } = await paymentService.createPayment({
@@ -40,6 +51,8 @@ async function createPayment(req, res, next) {
             metadata,
             request_id,
             merchant_order_id,
+            card: storedCard,
+            customer_label: (customer && customer.name) || undefined,
             created_by: req.userId,
         });
 
@@ -85,6 +98,37 @@ async function syncPayment(req, res, next) {
 }
 
 /** Re-open checkout for an unpaid payment, with a freshly minted client_secret. */
+function appBaseUrl(req) {
+    // The automation drives our own checkout page, so it needs a URL the
+    // headless browser can actually reach. Mirrors batchController.
+    return (
+        process.env.AUTOMATION_BASE_URL ||
+        process.env.APP_BASE_URL ||
+        `${req.protocol}://${req.get('host')}`
+    ).replace(/\/$/, '');
+}
+
+/**
+ * Pay one payment with the server-side browser automation.
+ *
+ * Awaited rather than backgrounded: it is a single payment and the operator is
+ * watching the button. Takes roughly half a minute.
+ */
+async function payAutomated(req, res, next) {
+    try {
+        const result = await paymentRunner.paySingle(req.params.id, {
+            headless: (req.body || {}).headless !== false,
+            baseUrl: appBaseUrl(req),
+        });
+        return res.json(result);
+    } catch (err) {
+        if (err.statusCode === 409 || err.statusCode === 404) {
+            return res.status(err.statusCode).json({ error: err.message });
+        }
+        return next(err);
+    }
+}
+
 async function getCheckoutSession(req, res, next) {
     try {
         const { payment, checkout } = await paymentService.getCheckoutSession(
@@ -405,6 +449,7 @@ module.exports = {
     bulkDeletePayments,
     exportPayments,
     getCheckoutSession,
+    payAutomated,
     bulkTemplate,
     validateBulkPayments,
     startBulkPayments,

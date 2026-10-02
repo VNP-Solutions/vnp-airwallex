@@ -1148,3 +1148,23 @@
     border-radius: 6px;
     padding: 3px 9px;
 }
+
+/* ============ Virtual card entry on the new-payment form ============ */
+.form-row-card {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr;
+    gap: 10px;
+}
+
+.card-hint {
+    margin: 6px 0 0;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.card-hint.is-error { color: #FF8080; }
+.card-hint.is-ok { color: #6FD39B; }
+
+@media (max-width: 520px) {
+    .form-row-card { grid-template-columns: 1fr; }
+}

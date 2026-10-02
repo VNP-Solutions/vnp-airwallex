@@ -155,6 +155,11 @@ window.BulkUpload = (() => {
                         : ''
                 }`;
             el.hidden = false;
+            // One bad row in a long file leaves the explanation below the fold,
+            // which reads as "it just failed". Bring it into view.
+            if (typeof el.scrollIntoView === 'function') {
+                el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }
             return;
         }
 

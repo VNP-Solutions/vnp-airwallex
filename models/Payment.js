@@ -54,7 +54,16 @@ const paymentSchema = new mongoose.Schema(
             index: true,
             default: () => require('crypto').randomBytes(16).toString('base64url'),
         },
-        merchant_order_id: { type: String, required: true, unique: true },
+        /**
+         * Our own order reference — the reservation id, in practice.
+         *
+         * Indexed but deliberately NOT unique: a booking that failed is tried
+         * again under the same order id, because it is the same booking. What
+         * stops a second charge is the application rule (only a settled payment
+         * reserves an id) plus request_id, which is unique and is the
+         * idempotency key Airwallex itself enforces.
+         */
+        merchant_order_id: { type: String, required: true, index: true },
 
         amount: { type: Number, required: true, min: 0 },
         currency: { type: String, required: true, uppercase: true },

@@ -563,13 +563,33 @@
             },
         };
 
-        setLoading(newSubmit, true, 'Creating…');
+        const pan = (formData.get('card_number') || '').replace(/[\s-]/g, '');
+        const expiry = (formData.get('card_expiry') || '').trim();
+        const cvv = (formData.get('card_cvv') || '').trim();
+        const hasCard = Boolean(pan || expiry || cvv);
+        if (hasCard) payload.card = { pan, expiry, cvv };
+
+        setLoading(newSubmit, true, hasCard ? 'Creating…' : 'Creating…');
         try {
             const { payment, checkout } = await api('/api/payments', {
                 method: 'POST',
                 body: JSON.stringify(payload),
             });
 
+            // With a card stored, the payment is taken here on the server
+            // through the same browser automation the batches use — so the card
+            // element sees the server's IP, not the operator's.
+            if (hasCard) {
+                closeModal(newModal);
+                newForm.reset();
+                resetHotelPicker();
+                showToast('Payment created — charging now…');
+                await load();
+                await payOnServer(payment._id, payment.merchant_order_id);
+                return;
+            }
+
+            // No card: fall back to the embedded checkout in this browser.
             // client_secret is short-lived and must not sit in a URL or in our
             // database — hand it to the checkout page in sessionStorage.
             sessionStorage.setItem(
@@ -1258,7 +1278,12 @@
         }
     }
 
+    // What the detail modal is currently showing, so its Pay button knows
+    // whether this payment has a stored card to automate with.
+    let detailPayment = null;
+
     function renderDetail(p) {
+        detailPayment = p;
         const events = (p.events || [])
             .slice()
             .reverse()
@@ -1462,7 +1487,7 @@
     detailBody.addEventListener('click', async (event) => {
         const pay = event.target.closest('[data-pay]');
         if (pay) {
-            openCheckoutFor(pay.dataset.pay, pay);
+            payFor(pay.dataset.pay, pay, detailPayment);
             return;
         }
 
@@ -1710,6 +1735,73 @@
      * Airwallex. That round trip also re-checks the status, so a payment that
      * was completed elsewhere is refused here rather than charged twice.
      */
+    /**
+     * Charge one payment with the server-side automation.
+     *
+     * Takes roughly half a minute — the server drives a real browser through
+     * the same checkout a person would use. The button says so rather than
+     * looking hung.
+     */
+    async function payOnServer(intentId, label, button) {
+        const restore = button
+            ? { text: button.textContent, disabled: button.disabled }
+            : null;
+        if (button) {
+            button.disabled = true;
+            button.textContent = 'Paying…';
+        }
+        showToast(`Charging ${label || 'payment'} — this takes a moment…`);
+
+        try {
+            const result = await api(
+                `/api/payments/${encodeURIComponent(intentId)}/pay`,
+                { method: 'POST', body: JSON.stringify({ headless: true }) }
+            );
+            if (result.ok) {
+                showToast(`${label || 'Payment'}: ${String(result.status)
+                    .toLowerCase()
+                    .replace(/_/g, ' ')}`);
+            } else {
+                showToast(`${label || 'Payment'} failed — ${result.reason}`, 'error');
+            }
+        } catch (err) {
+            showToast(err.message, 'error');
+        } finally {
+            if (button && restore) {
+                button.disabled = restore.disabled;
+                button.textContent = restore.text;
+            }
+            loadPayments();
+            loadStats();
+        }
+    }
+
+    /**
+     * Decide how a payment gets paid.
+     *
+     * A stored card is charged on the server through the automation, so the
+     * card element records the server's IP. Without one there is nothing to
+     * automate, so the operator finishes it in their own browser.
+     */
+    async function payFor(intentId, button, row) {
+        if (hasUsableCard(row)) {
+            await payOnServer(intentId, row.description || row.merchant_order_id, button);
+            return;
+        }
+        await openCheckoutFor(intentId, button);
+    }
+
+    /**
+     * Whether a payment still holds a card the automation can use.
+     *
+     * last4 survives the purge that follows a successful charge, so its
+     * presence alone is not enough — purged_at is what says the details are
+     * gone.
+     */
+    function hasUsableCard(row) {
+        return Boolean(row && row.card && row.card.last4 && !row.card.purged_at);
+    }
+
     async function openCheckoutFor(intentId, button) {
         const original = button.textContent;
         button.disabled = true;
@@ -1737,7 +1829,10 @@
         if (pay) {
             // Don't also open the detail modal for this click.
             event.stopPropagation();
-            openCheckoutFor(pay.dataset.pay, pay);
+            const row = rows.find(
+                (r) => r.payment_intent_id === pay.dataset.pay || r._id === pay.dataset.pay
+            );
+            payFor(pay.dataset.pay, pay, row);
             return;
         }
         // The checkbox column is for selection, not for opening the detail view.

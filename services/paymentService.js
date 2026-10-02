@@ -61,15 +61,69 @@ function assertOrderIdShape(orderId) {
  * The unique index is the real guarantee; this exists so the operator gets
  * "already used by …" instead of a raw duplicate-key error.
  */
+/**
+ * Validate and normalise a card for storage.
+ *
+ * The same rules the bulk importer applies, so a card typed into the form and
+ * one read from a spreadsheet are held to an identical standard: supported
+ * brand, plausible number, a readable expiry that has not passed, a CVV.
+ * Returns undefined when no card was supplied — paying by hand stays valid.
+ */
+function prepareCard(card) {
+    if (!card) return undefined;
+
+    const pan = cardVault.normalisePan(card.pan || card.number || card.card_number);
+    const rawExpiry = card.expiry || card.card_expiry;
+    const rawCvv = card.cvv || card.card_cvv;
+
+    // Nothing entered at all is not an error; it just means no stored card.
+    if (!pan && !rawExpiry && !rawCvv) return undefined;
+
+    if (!cardVault.isConfigured()) {
+        throw badRequest('CARD_ENCRYPTION_KEY is not set — card details cannot be stored');
+    }
+    if (!pan) throw badRequest('Card number is required when storing a card');
+
+    const brand = cardVault.brandOf(pan);
+    if (BLOCKED_CARD_BRANDS.includes(brand)) {
+        throw badRequest(
+            `${brand === 'amex' ? 'American Express' : brand} is not supported`
+        );
+    }
+    if (!cardVault.luhnValid(pan)) {
+        throw badRequest(`Card ending ${pan.slice(-4) || '????'}: ${cardVault.describePanProblem(pan)}`);
+    }
+
+    const expiry = cardVault.normaliseExpiry(rawExpiry);
+    if (!expiry) throw badRequest(`Expiry "${rawExpiry || ''}" is not a readable date`);
+    if (cardVault.expiryPassed(expiry)) throw badRequest(`The card expired in ${expiry}`);
+
+    const cvv = cardVault.normaliseCvv(rawCvv);
+    if (!cvv) throw badRequest('CVV is required when storing a card');
+
+    return { pan, expiry, cvv };
+}
+
+/**
+ * An order id is only spoken for once money has actually moved against it.
+ *
+ * A reservation that failed — wrong card, wrong amount, a decline — gets tried
+ * again under the same order id, because it is the same booking. Only a settled
+ * payment makes the id permanently taken: charging a second time against an
+ * order that already paid is the one outcome there is no undoing.
+ */
 async function assertOrderIdFree(orderId) {
-    const clash = await Payment.findOne({ merchant_order_id: orderId })
-        .select('payment_intent_id description created_at')
+    const clash = await Payment.findOne({
+        merchant_order_id: orderId,
+        status: { $in: SETTLED_STATUSES },
+    })
+        .select('payment_intent_id description status created_at')
         .lean();
     if (clash) {
         const err = new Error(
-            `Order ID "${orderId}" is already used by another payment${
+            `Order ID "${orderId}" already took payment${
                 clash.description ? ` (${clash.description})` : ''
-            }`
+            } — it cannot be charged again`
         );
         err.statusCode = 409;
         err.conflict = clash;
@@ -415,10 +469,21 @@ async function createPayment({
     });
     await payment.save();
 
+    // The freshly built document still holds the encrypted card in memory, and
+    // every normal read leaves those fields out (select: false). Strip them here
+    // too so the create response matches: ciphertext has no business leaving
+    // the server, and the client has last4 and brand for display already.
+    const safePayment = payment.toObject();
+    if (safePayment.card) {
+        delete safePayment.card.pan;
+        delete safePayment.card.expiry;
+        delete safePayment.card.cvv;
+    }
+
     // client_secret is deliberately not persisted — it is a short-lived
     // client-side credential, handed straight to the browser and never stored.
     return {
-        payment,
+        payment: safePayment,
         checkout: {
             intent_id: intent.id,
             client_secret: intent.client_secret,
@@ -1267,9 +1332,13 @@ async function validateBulkPayments(
             normaliseOrderId(r.merchant_order_id) || normaliseOrderId(r.reservation_id)
         )
         .filter(Boolean);
+    // Only a settled payment reserves an order id — see assertOrderIdFree.
     const takenOrderIds = new Set(
         (
-            await Payment.find({ merchant_order_id: { $in: fileOrderIds } })
+            await Payment.find({
+                merchant_order_id: { $in: fileOrderIds },
+                status: { $in: SETTLED_STATUSES },
+            })
                 .select('merchant_order_id')
                 .lean()
         ).map((p) => p.merchant_order_id)
@@ -1279,17 +1348,37 @@ async function validateBulkPayments(
         $or: [
             { request_id: { $in: reservationIds } },
             { description: { $in: reservationIds } },
+            // A payment made from the single-payment form carries a generated
+            // uuid in request_id and no description, so the order id is the
+            // only place its reservation is recorded. Without this, such a row
+            // is invisible here and then collides on the order-id check below —
+            // turning "already created, skip it" into a hard error that blocks
+            // the whole file.
+            { merchant_order_id: { $in: reservationIds } },
         ],
     })
-        .select('request_id description payment_intent_id status created_at')
+        .select('request_id description merchant_order_id payment_intent_id status created_at')
+        .sort({ created_at: -1 })
         .lean();
 
-    const existingByReservation = new Map();
+    // Settled payments only: an unpaid attempt no longer blocks the row, it
+    // just means the next attempt needs its own idempotency key.
+    const settledByReservation = new Map();
+    // How many attempts each reservation already has, so a retry can be given a
+    // request_id Airwallex has not seen — it rejects a reused one outright
+    // rather than replaying the original.
+    const attemptsByReservation = new Map();
+
     for (const row of existingRows) {
-        for (const key of [row.request_id, row.description]) {
-            if (key && reservationIds.includes(key) && !existingByReservation.has(key)) {
-                existingByReservation.set(key, row);
+        for (const key of [row.request_id, row.description, row.merchant_order_id]) {
+            if (!key || !reservationIds.includes(key)) continue;
+
+            attemptsByReservation.set(key, (attemptsByReservation.get(key) || 0) + 1);
+            if (SETTLED_STATUSES.includes(row.status) && !settledByReservation.has(key)) {
+                settledByReservation.set(key, row);
             }
+            // One payment can match on several keys; count it once per row.
+            break;
         }
     }
 
@@ -1390,14 +1479,16 @@ async function validateBulkPayments(
 
             // Already created on an earlier run — skip rather than fail. This is
             // what makes re-uploading the same file safe.
-            const existing = existingByReservation.get(reservationId);
-            if (existing) {
+            // Already paid: there is nothing left to do for this booking, and
+            // charging it again is the one mistake with no undo.
+            const settled = settledByReservation.get(reservationId);
+            if (settled) {
                 duplicates.push({
                     line,
                     reservation_id: reservationId,
-                    payment_intent_id: existing.payment_intent_id,
-                    status: existing.status,
-                    created_at: existing.created_at,
+                    payment_intent_id: settled.payment_intent_id,
+                    status: settled.status,
+                    created_at: settled.created_at,
                 });
                 continue;
             }
@@ -1427,7 +1518,7 @@ async function validateBulkPayments(
             if (takenOrderIds.has(orderId)) {
                 errors.push({
                     line,
-                    error: `Order ID ${orderId} is already used by another payment`,
+                    error: `Order ID ${orderId} already belongs to a payment for a different reservation — give this row its own Order ID`,
                 });
                 continue;
             }
@@ -1530,12 +1621,24 @@ async function validateBulkPayments(
         // so it is the description. An explicit Description column overrides it.
         const description = (row.description || '').trim() || reservationId;
 
+        // The reservation id is the idempotency key for the first attempt. A
+        // retry of a failed booking is a genuinely new request, so it is
+        // suffixed — Airwallex refuses a reused request_id rather than
+        // replaying it, which would otherwise make every retry impossible.
+        const priorAttempts = attemptsByReservation.get(reservationId) || 0;
+        const requestId = reservationId
+            ? priorAttempts
+                ? `${reservationId}-r${priorAttempts + 1}`.slice(0, 64)
+                : reservationId
+            : undefined;
+
         prepared.push({
             line,
             ota_id: otaId,
-            // Reservation id is unique per transaction, so it is the
-            // idempotency key sent to Airwallex.
-            request_id: reservationId || undefined,
+            request_id: requestId,
+            // How many times this booking has been tried before, so the
+            // operator can see a retry for what it is.
+            attempt: priorAttempts + 1,
             merchant_order_id: orderId || undefined,
             hotel_id: hotel ? hotel._id : undefined,
             hotel_name: hotel ? hotel.name : pendingHotel.name,
@@ -1739,7 +1842,7 @@ async function runBulkPayments(jobId, prepared, { userId, checkout_mode, fileLab
                 line: row.line,
                 ok: true,
                 ota_id: row.ota_id,
-                reservation_id: row.request_id,
+                reservation_id: row.description || row.request_id,
                 payment_intent_id: payment.payment_intent_id,
                 merchant_order_id: payment.merchant_order_id,
             });
@@ -1749,7 +1852,7 @@ async function runBulkPayments(jobId, prepared, { userId, checkout_mode, fileLab
                 line: row.line,
                 ok: false,
                 ota_id: row.ota_id,
-                reservation_id: row.request_id,
+                reservation_id: row.description || row.request_id,
                 error: err.message,
             });
             failed += 1;
@@ -2008,6 +2111,7 @@ async function exportPayments({ ids, filters, search, sort } = {}) {
 }
 
 module.exports = {
+    prepareCard,
     FILTERABLE_FIELDS,
     BLOCKED_CARD_BRANDS,
     ORDER_ID_MAX_LENGTH,

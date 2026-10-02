@@ -152,3 +152,93 @@
 }
 
 .run-warning strong { color: #FFB94B; }
+
+/* ============ Bulk selection ============ */
+.batch-select-bar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 16px;
+    margin-bottom: 14px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.batch-select-label {
+    margin-left: 10px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.72);
+}
+
+.batch-select-count {
+    margin-left: auto;
+    font-size: 13px;
+    color: #FFD200;
+}
+
+/* The card's own checkbox sits beside the file name. */
+.batch-pick {
+    margin-right: 10px;
+}
+
+.batch-card.is-picked {
+    border-color: rgba(255, 210, 0, 0.45);
+    background: rgba(255, 210, 0, 0.04);
+}
+
+/* Shared with the payments table — repeated here so the batches page does not
+   depend on that page's stylesheet. */
+.row-check-label { display: flex; align-items: center; cursor: pointer; }
+
+.row-check-label input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.row-check-box {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 1.5px solid rgba(255, 255, 255, 0.28);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.row-check-box::after {
+    content: '';
+    width: 8px;
+    height: 5px;
+    border-left: 2px solid #0F1B33;
+    border-bottom: 2px solid #0F1B33;
+    transform: rotate(-45deg) translate(1px, -1px);
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.row-check-label input:checked + .row-check-box {
+    background: #FFD200;
+    border-color: #FFD200;
+}
+
+.row-check-label input:checked + .row-check-box::after { opacity: 1; }
+
+.row-check-label input:indeterminate + .row-check-box {
+    background: rgba(255, 210, 0, 0.35);
+    border-color: #FFD200;
+}
+
+.delete-list {
+    margin: 0 0 4px;
+    padding-left: 18px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.7);
+    max-height: 160px;
+    overflow-y: auto;
+}
+
+.delete-list li { margin-bottom: 3px; }

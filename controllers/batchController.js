@@ -49,6 +49,19 @@ async function deleteBatch(req, res, next) {
     }
 }
 
+async function bulkDeleteBatches(req, res, next) {
+    try {
+        const { ids, force } = req.body || {};
+        const result = await batchService.deleteBatches(ids, { force: force === true });
+        // A mixed outcome is still a 200: the deletions that worked are real,
+        // and the caller needs the per-batch detail to say what did not.
+        return res.json(result);
+    } catch (err) {
+        if (err.statusCode === 400) return res.status(400).json({ error: err.message });
+        return next(err);
+    }
+}
+
 /** Kick off the automated payment run. Returns immediately; poll the batch. */
 async function startRun(req, res, next) {
     try {
@@ -73,4 +86,11 @@ async function stopRun(req, res, next) {
     }
 }
 
-module.exports = { listBatches, getBatch, deleteBatch, startRun, stopRun };
+module.exports = {
+    listBatches,
+    getBatch,
+    deleteBatch,
+    bulkDeleteBatches,
+    startRun,
+    stopRun,
+};

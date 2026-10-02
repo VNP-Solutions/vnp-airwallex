@@ -150,7 +150,7 @@
                     </svg>
                 </div>
                 <h2 class="modal-title">Take a payment</h2>
-                <p class="modal-sub">Creates an Airwallex Payment Intent and opens the embedded checkout. Nothing is charged until the shopper completes payment.</p>
+                <p class="modal-sub">Creates an Airwallex Payment Intent. Add a virtual card and it is charged here on the server, through the same automation the batches use.</p>
             </header>
 
             <form class="modal-form" id="new-form" novalidate>
@@ -163,6 +163,7 @@
                         <label>Currency</label>
                         <select name="currency" id="currency-select">
                             <option value="USD">USD</option>
+                            <option value="CAD">CAD</option>
                             <option value="EUR">EUR</option>
                             <option value="GBP">GBP</option>
                             <option value="AUD">AUD</option>
@@ -216,6 +217,16 @@
                     <input type="text" name="descriptor" id="descriptor-input" maxlength="32" placeholder="Auto-generated from the reference" autocomplete="off">
                 </div>
 
+                <div class="field">
+                    <label>Virtual card <span class="field-hint">stored encrypted, used by the automated payment</span></label>
+                    <div class="form-row-card">
+                        <input type="text" name="card_number" id="card-number-input" placeholder="Card number" autocomplete="off" inputmode="numeric">
+                        <input type="text" name="card_expiry" id="card-expiry-input" placeholder="MM/YY" autocomplete="off" maxlength="7">
+                        <input type="text" name="card_cvv" id="card-cvv-input" placeholder="CVV" autocomplete="off" inputmode="numeric" maxlength="4">
+                    </div>
+                    <p class="card-hint" id="card-hint">Leave blank to pay this one by hand instead.</p>
+                </div>
+
                 <details class="advanced">
                     <summary>Customer details <span class="field-hint">optional</span></summary>
                     <div class="form-row-2">
@@ -230,7 +241,7 @@
                     <button type="button" class="btn btn-ghost" data-close="new">Cancel</button>
                     <button type="submit" class="btn btn-primary" id="new-submit">
                         <span class="btn-spinner" aria-hidden="true"></span>
-                        <span class="btn-label">Create &amp; checkout</span>
+                        <span class="btn-label">Create payment</span>
                     </button>
                 </div>
             </form>

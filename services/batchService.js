@@ -129,10 +129,15 @@ async function deleteBatch(id, { force = false } = {}) {
         throw err;
     }
 
-    const result = await paymentService.deletePayments(
-        payments.map((p) => p.payment_intent_id),
-        { force }
-    );
+    // A batch whose upload produced no payments — every row rejected, or an
+    // import abandoned partway — is still a record to clear away. deletePayments
+    // rightly refuses an empty selection, so there is simply nothing to ask it.
+    const result = payments.length
+        ? await paymentService.deletePayments(
+              payments.map((p) => p.payment_intent_id),
+              { force }
+          )
+        : { deleted: 0, refused: 0, results: [] };
 
     await Batch.deleteOne({ _id: batch._id });
 
@@ -147,6 +152,48 @@ async function deleteBatch(id, { force = false } = {}) {
 }
 
 /**
+ * Delete several batches in one go.
+ *
+ * Each is attempted independently: one batch refusing — because it is mid-run,
+ * or because it holds settled payments — must not stop the rest from going.
+ * The caller gets a per-batch account of what happened rather than a single
+ * pass/fail, so a partial result is legible.
+ */
+async function deleteBatches(ids, { force = false } = {}) {
+    const list = [...new Set((ids || []).map((id) => String(id).trim()).filter(Boolean))];
+    if (!list.length) {
+        const err = new Error('No batches selected');
+        err.statusCode = 400;
+        throw err;
+    }
+
+    const deleted = [];
+    const refused = [];
+
+    for (const id of list) {
+        try {
+            deleted.push(await deleteBatch(id, { force }));
+        } catch (err) {
+            refused.push({
+                batch_id: id,
+                error: err.message,
+                settled: err.settled,
+            });
+        }
+    }
+
+    return {
+        requested: list.length,
+        deleted: deleted.length,
+        refused: refused.length,
+        payments_deleted: deleted.reduce((n, d) => n + (d.payments_deleted || 0), 0),
+        cancelled: deleted.reduce((n, d) => n + (d.cancelled || 0), 0),
+        results: deleted,
+        errors: refused,
+    };
+}
+
+/**
  * The payments in a batch that still need paying, with their card details
  * decrypted.
  *
@@ -154,6 +201,28 @@ async function deleteBatch(id, { force = false } = {}) {
  * held in memory for the duration of one payment and never persisted, logged
  * or returned over HTTP.
  */
+function withDecryptedCard(payment) {
+    if (!payment.card || !payment.card.pan) {
+        return { payment, card: null, reason: 'No card stored for this payment' };
+    }
+    try {
+        return {
+            payment,
+            card: {
+                pan: cardVault.decrypt(payment.card.pan),
+                expiry: cardVault.decrypt(payment.card.expiry),
+                cvv: cardVault.decrypt(payment.card.cvv),
+                name:
+                    payment.card.cardholder_name ||
+                    payment.customer_label ||
+                    'Card Holder',
+            },
+        };
+    } catch (err) {
+        return { payment, card: null, reason: `Card could not be decrypted: ${err.message}` };
+    }
+}
+
 async function getPayableWithCards(batchId) {
     const payments = await Payment.find({
         batch: batchId,
@@ -162,29 +231,30 @@ async function getPayableWithCards(batchId) {
         .select('+card.pan +card.expiry +card.cvv')
         .sort({ created_at: 1 });
 
-    return payments
-        .map((payment) => {
-            if (!payment.card || !payment.card.pan) {
-                return { payment, card: null, reason: 'No card stored for this payment' };
-            }
-            try {
-                return {
-                    payment,
-                    card: {
-                        pan: cardVault.decrypt(payment.card.pan),
-                        expiry: cardVault.decrypt(payment.card.expiry),
-                        cvv: cardVault.decrypt(payment.card.cvv),
-                        name:
-                            payment.card.cardholder_name ||
-                            payment.customer_label ||
-                            'Card Holder',
-                    },
-                };
-            } catch (err) {
-                return { payment, card: null, reason: `Card could not be decrypted: ${err.message}` };
-            }
-        })
-        .filter(Boolean);
+    return payments.map(withDecryptedCard);
+}
+
+/**
+ * One payment and its card, for paying a single row through the same
+ * automation the batches use.
+ */
+async function getPaymentWithCard(paymentId) {
+    // Resolved the same way as getPayment: callers hold an intent id, an order
+    // id or a mongo id depending on where they came from.
+    const id = String(paymentId || '');
+    const payment = await Payment.findOne({
+        $or: [
+            { payment_intent_id: id },
+            { merchant_order_id: id },
+            ...(id.match(/^[0-9a-fA-F]{24}$/) ? [{ _id: id }] : []),
+        ],
+    }).select('+card.pan +card.expiry +card.cvv');
+    if (!payment) {
+        const err = new Error('Payment not found');
+        err.statusCode = 404;
+        throw err;
+    }
+    return withDecryptedCard(payment);
 }
 
 /**
@@ -218,7 +288,9 @@ module.exports = {
     listBatches,
     getBatch,
     deleteBatch,
+    deleteBatches,
     getPayableWithCards,
+    getPaymentWithCard,
     clearCardData,
     cardCoverage,
 };

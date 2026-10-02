@@ -46,6 +46,9 @@ router.get('/distinct/:field', requireAuth, paymentController.distinctValues);
 router.get('/:id', requireAuth, paymentController.getPayment);
 router.post('/:id/sync', requireAuth, paymentController.syncPayment);
 router.post('/:id/checkout', requireAuth, paymentController.getCheckoutSession);
+// Pays one payment with the same server-side browser the batches use, so the
+// card element sees the server's IP rather than the operator's.
+router.post('/:id/pay', requireAuth, paymentController.payAutomated);
 router.post('/:id/cancel', requireAuth, paymentController.cancelPayment);
 router.delete('/:id', requireAuth, paymentController.deletePayment);
 
