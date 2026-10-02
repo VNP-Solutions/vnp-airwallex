@@ -1152,8 +1152,17 @@
 /* ============ Virtual card entry on the new-payment form ============ */
 .form-row-card {
     display: grid;
-    grid-template-columns: 2fr 1fr 1fr;
+    /* minmax(0, …) because these inputs are grid items in their own right: an
+       input's min-content width is its default character size, so plain `fr`
+       tracks refuse to shrink below roughly 530px and the CVV is pushed out of
+       a 440px dialog. */
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
     gap: 10px;
+}
+
+.form-row-card input {
+    width: 100%;
+    min-width: 0;
 }
 
 .card-hint {

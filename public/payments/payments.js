@@ -569,23 +569,25 @@
         const hasCard = Boolean(pan || expiry || cvv);
         if (hasCard) payload.card = { pan, expiry, cvv };
 
-        setLoading(newSubmit, true, hasCard ? 'Creating…' : 'Creating…');
+        setLoading(newSubmit, true, 'Creating…');
         try {
             const { payment, checkout } = await api('/api/payments', {
                 method: 'POST',
                 body: JSON.stringify(payload),
             });
 
-            // With a card stored, the payment is taken here on the server
-            // through the same browser automation the batches use — so the card
-            // element sees the server's IP, not the operator's.
+            // With a card stored the payment is ready to be charged, but it is
+            // not charged here: creating a record and taking money are separate
+            // decisions, and the operator makes the second one with the Pay
+            // button on the row.
             if (hasCard) {
                 closeModal(newModal);
                 newForm.reset();
                 resetHotelPicker();
-                showToast('Payment created — charging now…');
+                showToast(
+                    `${payment.merchant_order_id} created — press Pay on the row to charge it.`
+                );
                 await load();
-                await payOnServer(payment._id, payment.merchant_order_id);
                 return;
             }
 

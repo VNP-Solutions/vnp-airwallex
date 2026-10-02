@@ -150,7 +150,7 @@
                     </svg>
                 </div>
                 <h2 class="modal-title">Take a payment</h2>
-                <p class="modal-sub">Creates an Airwallex Payment Intent. Add a virtual card and it is charged here on the server, through the same automation the batches use.</p>
+                <p class="modal-sub">Creates an Airwallex Payment Intent. Add a virtual card and it is stored encrypted, ready for the Pay button — nothing is charged until you press it.</p>
             </header>
 
             <form class="modal-form" id="new-form" novalidate>
@@ -190,7 +190,7 @@
                 </div>
 
                 <div class="field">
-                    <label>Reference <span class="field-hint">e.g. the reservation ID</span></label>
+                    <label>Reference <span class="field-hint">e.g. the hotel website</span></label>
                     <input type="text" name="reference" id="reference-input" placeholder="e.g. BK-10482" autocomplete="off">
                     <p class="autofill-hint" id="reference-autofill-hint" hidden>Filled from the hotel's website — edit it if you need something else.</p>
                 </div>
@@ -224,7 +224,7 @@
                         <input type="text" name="card_expiry" id="card-expiry-input" placeholder="MM/YY" autocomplete="off" maxlength="7">
                         <input type="text" name="card_cvv" id="card-cvv-input" placeholder="CVV" autocomplete="off" inputmode="numeric" maxlength="4">
                     </div>
-                    <p class="card-hint" id="card-hint">Leave blank to pay this one by hand instead.</p>
+                    <p class="card-hint" id="card-hint">Stored encrypted. Charged only when you press Pay on the row. Leave blank to pay by hand instead.</p>
                 </div>
 
                 <details class="advanced">
