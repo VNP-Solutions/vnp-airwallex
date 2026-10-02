@@ -868,13 +868,21 @@
         async function tick() {
             try {
                 const job = await api(`/api/payments/bulk/jobs/${jobId}`);
-                const pct = job.total ? Math.round((job.processed / job.total) * 100) : 0;
+                // The batch record calls it total_rows; `total` is left over
+                // from the job model this replaced, and reading it gave a bar
+                // stuck at 0% next to "38/undefined".
+                const total = job.total_rows != null ? job.total_rows : job.total;
+                const pct = total ? Math.round((job.processed / total) * 100) : 0;
                 jobBarFill.style.width = `${pct}%`;
                 jobCounts.innerHTML = `<span class="job-ok">${job.succeeded} created</span>${
                     job.failed ? ` · <span class="job-fail">${job.failed} failed</span>` : ''
-                } · ${job.processed}/${job.total}`;
+                } · ${job.processed}/${total != null ? total : '—'}`;
 
-                if (job.status === 'completed' || job.status === 'failed') {
+                // A finished batch is 'ready' — it only reads 'completed' once a
+                // pay run has been through it. Polling for the wrong word left
+                // the modal saying "Creating payments…" over a finished job and
+                // never surfaced the per-row failures.
+                if (['ready', 'completed', 'failed'].includes(job.status)) {
                     jobLabel.textContent =
                         job.status === 'failed' ? 'Job failed' : 'Done';
                     stopJobPolling();

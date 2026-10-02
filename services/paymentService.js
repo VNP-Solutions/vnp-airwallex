@@ -62,6 +62,22 @@ function assertOrderIdShape(orderId) {
  * "already used by …" instead of a raw duplicate-key error.
  */
 /**
+ * A request_id that Airwallex cannot have seen before.
+ *
+ * Keeps the original in front so the key still reads as the booking it belongs
+ * to, and appends enough entropy that two retries seconds apart cannot collide.
+ * Truncated from the left of the suffix, never the reservation, so the id stays
+ * recognisable at 64 characters.
+ */
+function uniqueRequestId(base) {
+    const suffix = `-r${Date.now().toString(36)}${crypto
+        .randomBytes(2)
+        .toString('hex')}`;
+    const room = 64 - suffix.length;
+    return `${String(base || 'req').slice(0, room)}${suffix}`;
+}
+
+/**
  * Validate and normalise a card for storage.
  *
  * The same rules the bulk importer applies, so a card typed into the form and
@@ -346,7 +362,7 @@ async function createPayment({
     // transaction — so a re-run of the same booking cannot charge twice.
     // Airwallex rejects a reused request_id outright (it does NOT replay the
     // original intent), which is what makes this a real guard.
-    const request_id = (requestId || '').trim() || crypto.randomUUID();
+    let request_id = (requestId || '').trim() || crypto.randomUUID();
     if (request_id.length > 64) {
         throw badRequest('request_id must be 64 characters or fewer');
     }
@@ -363,6 +379,11 @@ async function createPayment({
     const apiLog = [];
 
     let intent;
+    let retried = false;
+
+    // Wrapped so a request_id collision can be answered by asking again under a
+    // new key — see the catch below for why that is the right response.
+    async function attemptCreate() {
     try {
         intent = await airwallex.createPaymentIntent({
         log: apiLog,
@@ -407,18 +428,28 @@ async function createPayment({
         )}`,
         });
     } catch (err) {
-        // Surfaces when a reservation is submitted twice. Airwallex's own guard
-        // caught it, so nothing was charged — say so plainly rather than
-        // leaking "duplicate_request".
-        if (err.airwallex && err.airwallex.code === 'duplicate_request') {
-            const clash = new Error(
-                `A payment already exists for reference ${request_id} — nothing was charged again`
-            );
-            clash.statusCode = 409;
-            throw clash;
+        // Airwallex remembers every request_id it has ever seen, for good, and
+        // across environments it is a separate ledger from ours. So a reused
+        // key means only "this exact request was sent before" — not "this
+        // booking is already paid". Our own guard for that is the settled-status
+        // check in assertOrderIdFree, which ran above.
+        //
+        // That distinction matters because the two can disagree: a record
+        // deleted here, or a batch first attempted against a different account,
+        // leaves Airwallex holding a key we have no trace of. Refusing on that
+        // basis blocks a legitimate retry for a booking nobody ever charged —
+        // which is what stalled a whole 38-row file. So a collision is resolved
+        // by asking again under a key that is unmistakably new, once.
+        if (err.airwallex && err.airwallex.code === 'duplicate_request' && !retried) {
+            retried = true;
+            request_id = uniqueRequestId(request_id);
+            return attemptCreate();
         }
         throw err;
     }
+    }
+
+    await attemptCreate();
 
     const payment = new Payment({
         public_token: publicToken,
