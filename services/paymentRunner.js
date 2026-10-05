@@ -3,6 +3,7 @@ const Payment = require('../models/Payment');
 const batchService = require('./batchService');
 const paymentService = require('./paymentService');
 const cardVault = require('./cardVault');
+const stealth = require('./browserStealth');
 
 /**
  * Automated payment of a batch through a real browser.
@@ -254,7 +255,13 @@ async function waitForOutcome(page, timeoutMs) {
 async function payOne(browser, { baseUrl, handoff, card, timeoutMs, say = () => {} }) {
     const page = await browser.newPage();
     try {
-        await page.setViewport({ width: jitter(1280, 1440), height: jitter(800, 900) });
+        // Before any navigation: the document-level patches only apply to
+        // documents loaded after they are installed.
+        const ua = await stealth.applyStealth(page, {
+            width: jitter(1280, 1440),
+            height: jitter(800, 900),
+        });
+        say(`browser ready — ${ua.replace(/^Mozilla\/5\.0 /, '')}`);
 
         // Surface anything the checkout page itself complains about — a failed
         // SDK load or a script error would otherwise be silent in headless.
@@ -393,15 +400,7 @@ async function paySingle(paymentId, { headless = true, baseUrl } = {}) {
 
     try {
         say(`single payment — ${payment.amount} ${payment.currency}, headless=${headless}`);
-        browser = await puppeteer.launch({
-            headless,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-blink-features=AutomationControlled',
-            ],
-            defaultViewport: null,
-        });
+        browser = await puppeteer.launch(stealth.launchOptions({ headless }));
 
         // A fresh client_secret, and a status re-check: a payment settled
         // elsewhere since the page loaded is refused rather than charged twice.
@@ -537,15 +536,7 @@ async function execute(batchId, items, { headless, baseUrl, controller }) {
 
     log('', `run starting — ${items.length} to pay, headless=${headless}, base=${baseUrl}`);
 
-    const browser = await puppeteer.launch({
-        headless,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-blink-features=AutomationControlled',
-        ],
-        defaultViewport: null,
-    });
+    const browser = await puppeteer.launch(stealth.launchOptions({ headless }));
 
     let processed = 0;
     let succeeded = 0;
