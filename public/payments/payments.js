@@ -34,6 +34,7 @@
         { key: 'amount', label: 'Amount', filter: { kind: 'number' } },
         { key: 'currency', label: 'Currency', filter: { kind: 'enum' } },
         { key: 'status', label: 'Status', filter: { kind: 'enum' } },
+        { key: 'card_issuer', label: 'Issuer', filter: { kind: 'enum' } },
         { key: 'descriptor', label: 'Descriptor', filter: { kind: 'text' } },
         { key: 'batch_name', label: 'Batch', filter: { kind: 'enum' } },
         { key: 'created_at', label: 'Created', filter: { kind: 'date' } },
@@ -178,6 +179,17 @@
             (c) =>
                 ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]
         );
+    }
+
+    /**
+     * Shorten a value for a table cell, keeping the whole thing on hover.
+     *
+     * Character-based rather than a CSS ellipsis so the cut is the same
+     * wherever the column happens to be sized.
+     */
+    function truncate(value, max = 30) {
+        const text = String(value == null ? '' : value);
+        return text.length > max ? `${text.slice(0, max)}…` : text;
     }
 
     function formatAmount(amount, currency) {
@@ -1020,7 +1032,13 @@
                             ? `<span class="portfolio-tag">${escapeHtml(p.hotel_portfolio)}</span>`
                             : '<span class="entity-meta">—</span>'
                     }</td>
-                    <td><div class="entity-name">${escapeHtml(p.reference || '—')}</div></td>
+                    <td>${
+                        p.reference
+                            ? `<div class="entity-name" title="${escapeHtml(
+                                  p.reference
+                              )}">${escapeHtml(truncate(p.reference))}</div>`
+                            : '<div class="entity-name">—</div>'
+                    }</td>
                     <td>${
                         p.description
                             ? `<span class="description-cell" title="${escapeHtml(
@@ -1031,6 +1049,22 @@
                     <td class="amount-cell">${escapeHtml(formatAmount(p.amount, p.currency))}</td>
                     <td><span class="entity-meta">${escapeHtml(p.currency)}</span></td>
                     <td>${statusCell(p)}</td>
+                    <td>${
+                        p.card_issuer
+                            ? `<div class="entity-stack">
+                                   <div class="entity-name issuer-name" title="${escapeHtml(
+                                       p.card_issuer
+                                   )}">${escapeHtml(p.card_issuer)}</div>
+                                   ${
+                                       p.card_last4
+                                           ? `<div class="order-id">•••• ${escapeHtml(
+                                                 p.card_last4
+                                             )}${p.card_brand ? ` · ${escapeHtml(p.card_brand)}` : ''}</div>`
+                                           : ''
+                                   }
+                               </div>`
+                            : '<span class="entity-meta">—</span>'
+                    }</td>
                     <td>${
                         p.descriptor
                             ? `<code class="descriptor-cell">${escapeHtml(p.descriptor)}</code>`

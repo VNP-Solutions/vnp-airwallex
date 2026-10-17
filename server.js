@@ -64,6 +64,10 @@ async function start() {
 
         // Say out loud which Airwallex account this process is wired to. Two
         // incidents have come from a process quietly holding the wrong one.
+        //
+        // Checked before the banner is printed: a declared mode that disagrees
+        // with the credentials would make the banner itself the lie.
+        airwallex.assertModeMatchesCredentials();
         const cfg = airwallex.describeMode();
         const banner = cfg.mode === 'live' ? 'LIVE' : 'SANDBOX';
         console.log(

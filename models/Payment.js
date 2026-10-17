@@ -153,6 +153,14 @@ const paymentSchema = new mongoose.Schema(
         payment_method_type: String,
         card_brand: String,
         card_last4: String,
+        /**
+         * The bank that issued the card, as Airwallex reports it on the payment
+         * attempt ("WEX BANK", "JPMORGAN CHASE BANK, N.A.").
+         *
+         * Indexed because it is a column filter: which issuer a virtual card
+         * sits behind is how a run of declines gets traced back to one bank.
+         */
+        card_issuer: { type: String, index: true },
 
         /**
          * Outcome of the most recent attempt.

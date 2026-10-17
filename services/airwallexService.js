@@ -48,6 +48,33 @@ function baseUrl() {
         : 'https://api-demo.airwallex.com';
 }
 
+/**
+ * Refuse to run when the declared mode and the credentials disagree.
+ *
+ * scoped() falls back to the unprefixed AIRWALLEX_* variables when the
+ * mode-specific ones are absent. That is convenient for a single-environment
+ * install and dangerous everywhere else: declaring AIRWALLEX_MODE=sandbox while
+ * the flat variables hold live values prints "SANDBOX" at boot and then charges
+ * real cards. The declared mode must agree with the host actually being called.
+ */
+function assertModeMatchesCredentials() {
+    const declared = mode();
+    if (!declared) return; // Nothing declared, nothing to contradict.
+
+    const host = baseUrl();
+    const looksSandbox = /(-demo|sandbox)\./.test(host);
+    const actual = looksSandbox ? 'sandbox' : 'live';
+
+    if (actual !== declared) {
+        throw new Error(
+            `AIRWALLEX_MODE is "${declared}" but the configured base URL is ${host}, ` +
+                `which is ${actual}. Set AIRWALLEX_${declared.toUpperCase()}_BASE_URL, ` +
+                `AIRWALLEX_${declared.toUpperCase()}_CLIENT_ID and ` +
+                `AIRWALLEX_${declared.toUpperCase()}_API_KEY, or clear AIRWALLEX_MODE.`
+        );
+    }
+}
+
 /** A one-line description of the active configuration, for logs and the UI. */
 function describeMode() {
     const active = mode();
@@ -438,6 +465,7 @@ function verifyWebhookSignature({ timestamp, signature, rawBody, secret }) {
 }
 
 module.exports = {
+    assertModeMatchesCredentials,
     DESCRIPTOR_MAX_LENGTH,
     redact,
     mode,

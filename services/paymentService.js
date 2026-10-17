@@ -214,6 +214,7 @@ function applyIntent(payment, intent, { source = 'sync', eventName, eventId } = 
             if (method.card) {
                 if (method.card.brand) payment.card_brand = method.card.brand;
                 if (method.card.last4) payment.card_last4 = method.card.last4;
+                if (method.card.issuer_name) payment.card_issuer = method.card.issuer_name;
             }
         }
 
@@ -799,6 +800,8 @@ const FILTERABLE_FIELDS = {
 
     amount: 'number',
     captured_amount: 'number',
+
+    card_issuer: 'enum',
 
     status: 'enum',
     last_attempt_status: 'enum',
@@ -2057,8 +2060,7 @@ async function deletePayments(ids, { force = false } = {}) {
 const EXPORT_HEADERS = [
     'Payment Intent ID',
     'Order ID',
-    'Status',
-    'Attempt Status',
+    'Charge Status',
     'Failure Code',
     'Failure Reason',
     'Amount',
@@ -2074,17 +2076,39 @@ const EXPORT_HEADERS = [
     'Customer Email',
     'Card Brand',
     'Card Last4',
+    'Card Issuer',
     'Batch',
     'Created',
     'Last Synced',
 ];
 
+/**
+ * One plain answer to "did this charge go through?".
+ *
+ * The raw pair is awkward to read in a spreadsheet: a success shows up in
+ * `status` while a decline shows up in `last_attempt_status`, because Airwallex
+ * leaves a declined intent at REQUIRES_PAYMENT_METHOD so it can be retried. So
+ * the two are collapsed into the single column an operator actually sorts by.
+ */
+function chargeStatus(p) {
+    if (SETTLED_STATUSES.includes(p.status)) return 'Succeeded';
+    if (p.last_attempt_status === 'FAILED') return 'Declined';
+    if (p.status === 'CANCELLED') return 'Cancelled';
+    if (p.status === 'EXPIRED') return 'Expired';
+    // An intent nobody has presented a card to yet — distinct from one that was
+    // tried and refused, which is the distinction the split columns obscured.
+    if (!p.last_attempt_status) return 'Not attempted';
+    return String(p.status || '')
+        .toLowerCase()
+        .replace(/_/g, ' ')
+        .replace(/^./, (c) => c.toUpperCase());
+}
+
 function toExportRow(p) {
     return {
         'Payment Intent ID': p.payment_intent_id,
         'Order ID': p.merchant_order_id,
-        Status: p.status,
-        'Attempt Status': p.last_attempt_status || '',
+        'Charge Status': chargeStatus(p),
         'Failure Code': (p.last_error && p.last_error.code) || '',
         'Failure Reason': (p.last_error && p.last_error.message) || '',
         Amount: p.amount,
@@ -2100,6 +2124,7 @@ function toExportRow(p) {
         'Customer Email': (p.customer && p.customer.email) || '',
         'Card Brand': p.card_brand || '',
         'Card Last4': p.card_last4 || '',
+        'Card Issuer': p.card_issuer || '',
         Batch: p.batch_name || '',
         Created: p.created_at ? new Date(p.created_at).toISOString() : '',
         'Last Synced': p.last_synced_at ? new Date(p.last_synced_at).toISOString() : '',

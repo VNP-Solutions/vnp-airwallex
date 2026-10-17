@@ -1177,3 +1177,12 @@
 @media (max-width: 520px) {
     .form-row-card { grid-template-columns: 1fr; }
 }
+
+/* Issuer names run long ("JPMORGAN CHASE BANK, N.A.") — keep the column from
+   stretching the table and let the title attribute carry the full value. */
+.issuer-name {
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
