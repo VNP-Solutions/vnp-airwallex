@@ -11,6 +11,7 @@ const paymentRoutes = require('./routes/paymentRoutes');
 const hotelRoutes = require('./routes/hotelRoutes');
 const financeRoutes = require('./routes/financeRoutes');
 const batchRoutes = require('./routes/batchRoutes');
+const disputeRoutes = require('./routes/disputeRoutes');
 const openapiSpec = require('./docs/openapi');
 const { failStaleBatches } = require('./services/paymentService');
 const { failStaleRuns } = require('./services/paymentRunner');
@@ -46,6 +47,7 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/hotels', hotelRoutes);
 app.use('/api/finance', financeRoutes);
 app.use('/api/batches', batchRoutes);
+app.use('/api/disputes', disputeRoutes);
 
 app.use((err, req, res, next) => {
     console.error(err);

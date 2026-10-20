@@ -413,6 +413,172 @@ async function getBalanceHistory(params = {}) {
     return request('GET', `/api/v1/balances/history${qs ? `?${qs}` : ''}`);
 }
 
+// ============== Payment disputes ==============
+
+function toQuery(params = {}) {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+        if (value !== undefined && value !== null && value !== '') query.set(key, value);
+    }
+    const qs = query.toString();
+    return qs ? `?${qs}` : '';
+}
+
+/**
+ * Disputes raised against our payments.
+ *
+ * Filterable by payment_intent_id and merchant_order_id among others, which is
+ * what lets a dispute be tied back to the reservation it belongs to.
+ */
+async function listDisputes(params = {}, { log } = {}) {
+    return request('GET', `/api/v1/pa/payment_disputes${toQuery(params)}`, undefined, { log });
+}
+
+async function retrieveDispute(id, { log } = {}) {
+    return request('GET', `/api/v1/pa/payment_disputes/${encodeURIComponent(id)}`, undefined, {
+        log,
+    });
+}
+
+/**
+ * Concede the dispute. The money stays with the cardholder and the case closes.
+ *
+ * Irreversible, which is why the caller is made to be explicit about it rather
+ * than it being a default.
+ */
+async function acceptDispute(id, body = {}, { log } = {}) {
+    return request(
+        'POST',
+        `/api/v1/pa/payment_disputes/${encodeURIComponent(id)}/accept`,
+        { request_id: body.request_id || crypto.randomUUID(), ...body },
+        { log }
+    );
+}
+
+/** Contest the dispute, with evidence. */
+async function challengeDispute(id, body = {}, { log } = {}) {
+    return request(
+        'POST',
+        `/api/v1/pa/payment_disputes/${encodeURIComponent(id)}/challenge`,
+        { request_id: body.request_id || crypto.randomUUID(), ...body },
+        { log }
+    );
+}
+
+/** Only metadata is updatable on a dispute. */
+async function updateDispute(id, metadata = {}, { log } = {}) {
+    return request(
+        'POST',
+        `/api/v1/pa/payment_disputes/${encodeURIComponent(id)}/update`,
+        { metadata },
+        { log }
+    );
+}
+
+async function disputeRelatedPaymentIntents(id, { log } = {}) {
+    return request(
+        'GET',
+        `/api/v1/pa/payment_disputes/${encodeURIComponent(id)}/related_payment_intents`,
+        undefined,
+        { log }
+    );
+}
+
+// ============== File service ==============
+
+/**
+ * The file service lives on its own host.
+ *
+ * api.sandbox.airwallex.com serves the payments API; uploads go to
+ * files.sandbox.airwallex.com. Deriving it from the API host keeps the two in
+ * step when the environment changes.
+ */
+function filesBaseUrl() {
+    return baseUrl().replace(/^https:\/\/api([.-])/, 'https://files$1');
+}
+
+/**
+ * Upload an evidence document and get back the file_id to cite in a challenge.
+ *
+ * Multipart, because that is what the file service accepts — the only call in
+ * this client that is not JSON.
+ */
+async function uploadFile(buffer, filename, { contentType, notes } = {}) {
+    const token = await getToken();
+    const form = new FormData();
+    form.append(
+        'file',
+        new Blob([buffer], { type: contentType || 'application/octet-stream' }),
+        String(filename || 'evidence').slice(0, 50)
+    );
+    if (notes) form.append('notes', String(notes).slice(0, 50));
+
+    const res = await fetch(`${filesBaseUrl()}/api/v1/files/upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+    });
+
+    const text = await res.text();
+    let data;
+    try {
+        data = JSON.parse(text);
+    } catch (e) {
+        data = { raw: text };
+    }
+
+    if (!res.ok) {
+        const err = new Error(
+            `Airwallex file upload failed: ${data.message || data.code || res.status}`
+        );
+        err.statusCode = res.status === 400 ? 400 : 502;
+        err.airwallex = data;
+        throw err;
+    }
+    return data;
+}
+
+// ============== Sandbox simulation ==============
+
+/**
+ * Raise a dispute against a payment. Sandbox only — the endpoint does not exist
+ * in production, which is the point: it is how this feature gets tested without
+ * waiting for a real cardholder to complain.
+ */
+async function simulateDispute(body, { log } = {}) {
+    assertSandbox('simulate a dispute');
+    return request('POST', '/api/v1/simulation/pa/payment_disputes/create', body, { log });
+}
+
+async function simulateDisputeResolve(id, body = {}, { log } = {}) {
+    assertSandbox('resolve a dispute');
+    return request(
+        'POST',
+        `/api/v1/simulation/pa/payment_disputes/${encodeURIComponent(id)}/resolve`,
+        body,
+        { log }
+    );
+}
+
+async function simulateDisputeEscalate(id, body = {}, { log } = {}) {
+    assertSandbox('escalate a dispute');
+    return request(
+        'POST',
+        `/api/v1/simulation/pa/payment_disputes/${encodeURIComponent(id)}/escalate`,
+        body,
+        { log }
+    );
+}
+
+/** Simulation calls are refused outright against a live account. */
+function assertSandbox(action) {
+    if (describeMode().mode === 'live') {
+        const err = new Error(`Refusing to ${action} against the live account`);
+        err.statusCode = 409;
+        throw err;
+    }
+}
+
 // ============== Financial reports ==============
 
 async function listFinancialReports(params = {}) {
@@ -482,6 +648,17 @@ module.exports = {
     createPaymentIntent,
     retrievePaymentIntent,
     cancelPaymentIntent,
+    listDisputes,
+    retrieveDispute,
+    acceptDispute,
+    challengeDispute,
+    updateDispute,
+    disputeRelatedPaymentIntents,
+    uploadFile,
+    filesBaseUrl,
+    simulateDispute,
+    simulateDisputeResolve,
+    simulateDisputeEscalate,
     verifyWebhookSignature,
     // exported for tests / diagnostics
     authenticate,

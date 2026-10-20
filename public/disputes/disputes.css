@@ -1,0 +1,320 @@
+/* ============ Disputes — table ============ */
+
+.due-label { font-weight: 600; font-size: 13px; }
+.due-label.is-soon { color: #FFD200; }
+.due-label.is-overdue { color: #FF8080; }
+
+/* ============ Detail modal ============ */
+
+/* Wide enough for evidence and the response to sit side by side: the two are
+   worked together, and stacking them pushed the submit button off screen. */
+.modal.modal-dispute {
+    max-width: 960px;
+    padding: 30px 32px 28px;
+}
+
+.dispute-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    padding-right: 36px; /* clear of the close button */
+    margin-bottom: 18px;
+}
+
+.dispute-eyebrow {
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 6px;
+}
+
+.dispute-title {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+    color: #FFFFFF;
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+}
+
+.dispute-id {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12.5px;
+    font-weight: 500;
+    letter-spacing: 0;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.dispute-pills { margin-top: 10px; }
+
+.due-badge {
+    flex-shrink: 0;
+    padding: 8px 14px;
+    border-radius: 10px;
+    font-size: 12.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.8);
+}
+.due-badge.is-soon {
+    background: rgba(255, 210, 0, 0.1);
+    border-color: rgba(255, 210, 0, 0.35);
+    color: #FFD200;
+}
+.due-badge.is-overdue {
+    background: rgba(255, 107, 107, 0.1);
+    border-color: rgba(255, 107, 107, 0.4);
+    color: #FF8080;
+}
+
+.issuer-note {
+    margin: 0 0 18px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: rgba(255, 210, 0, 0.06);
+    border: 1px solid rgba(255, 210, 0, 0.22);
+    font-size: 13px;
+}
+.issuer-note strong { display: block; margin-bottom: 4px; color: #FFD200; font-size: 12px; }
+.issuer-note p { color: rgba(255, 255, 255, 0.8); line-height: 1.5; }
+
+/* ---- the facts about the charge ---- */
+.facts {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1px;
+    margin: 0 0 22px;
+    border-radius: 12px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.fact {
+    padding: 12px 14px;
+    background: #12223F;
+    min-width: 0;
+}
+.fact dt {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.42);
+    margin-bottom: 5px;
+}
+.fact dd {
+    font-size: 13.5px;
+    color: #FFFFFF;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+.fact dd.mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+}
+.fact-sub {
+    display: block;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+    margin-top: 2px;
+    font-family: inherit;
+}
+.fact-link { color: #FFD200; text-decoration: none; }
+.fact-link:hover { text-decoration: underline; }
+
+/* ---- evidence and response, side by side ---- */
+.dispute-panels {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+    gap: 16px;
+    align-items: start;
+}
+
+.panel {
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 14px;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+}
+
+.panel-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+}
+.panel-head h3 { font-size: 14.5px; font-weight: 600; color: #FFFFFF; }
+.panel-count { font-size: 12px; color: rgba(255, 255, 255, 0.45); }
+
+.panel-empty {
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.panel .field { margin: 0; }
+
+.panel-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding-top: 4px;
+}
+.panel-actions .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+
+.panel-history { margin-top: 16px; }
+
+/* ---- evidence list ---- */
+.evidence-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.evidence-list li {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 9px 10px 9px 12px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.evidence-icon { width: 18px; height: 18px; flex-shrink: 0; color: #FFD200; }
+.evidence-icon svg { width: 100%; height: 100%; }
+.evidence-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.evidence-name {
+    font-size: 13px;
+    color: #FFFFFF;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.evidence-meta { font-size: 11.5px; color: rgba(255, 255, 255, 0.45); margin-top: 1px; }
+.evidence-remove {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    flex-shrink: 0;
+    font-size: 17px;
+    line-height: 1;
+    color: rgba(255, 255, 255, 0.45);
+    transition: background 0.15s, color 0.15s;
+}
+.evidence-remove:hover { background: rgba(255, 107, 107, 0.12); color: #FF8080; }
+
+.evidence-drop { padding: 20px 16px; }
+.evidence-drop .dropzone-icon { width: 22px; height: 22px; margin-bottom: 6px; }
+.evidence-drop .dropzone-text { font-size: 13px; word-break: normal; }
+
+/* ---- the explanation box ---- */
+.panel textarea {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: #FFFFFF;
+    font-size: 13px;
+    line-height: 1.5;
+    font-family: inherit;
+    resize: vertical;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+.panel textarea:focus {
+    border-color: #FFD200;
+    box-shadow: 0 0 0 3px rgba(255, 210, 0, 0.12);
+}
+.panel textarea::placeholder { color: rgba(255, 255, 255, 0.35); }
+
+.btn-danger-ghost { color: #FF8080; }
+.btn-danger-ghost:hover { background: rgba(255, 128, 128, 0.1); }
+
+/* ============ Custom select ============
+   The app's .menu / .menu-option dropdown, made into a form control. */
+.cselect { position: relative; width: 100%; }
+
+.cselect-trigger {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    color: #FFFFFF;
+    font-size: 13px;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.cselect-trigger:hover { background: rgba(255, 255, 255, 0.06); }
+.cselect.open .cselect-trigger {
+    border-color: #FFD200;
+    box-shadow: 0 0 0 3px rgba(255, 210, 0, 0.12);
+}
+.cselect-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cselect .menu-chevron { flex-shrink: 0; color: rgba(255, 255, 255, 0.55); }
+.cselect.open .menu-chevron { transform: rotate(180deg); }
+
+.cselect .cselect-menu {
+    left: 0;
+    right: 0;
+    min-width: 0;
+    max-height: 290px;
+    overflow-y: auto;
+    z-index: 160;
+}
+.cselect-option-label {
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 13px !important;
+    color: #FFFFFF !important;
+    margin-top: 0 !important;
+}
+.cselect-check { width: 14px; height: 14px; color: #FFD200; opacity: 0; flex-shrink: 0; }
+.cselect .menu-option.is-selected { background: rgba(255, 210, 0, 0.08); }
+.cselect .menu-option.is-selected .cselect-check { opacity: 1; }
+
+/* ---- history ---- */
+.history-list { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.history-list li {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 9px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.8);
+}
+.history-list li:last-child { border-bottom: none; }
+.history-what { flex: 1; min-width: 0; }
+.history-stage {
+    flex-shrink: 0;
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+@media (max-width: 860px) {
+    .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .dispute-panels { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 520px) {
+    .modal.modal-dispute { padding: 24px 18px; }
+    .dispute-head { flex-direction: column; }
+    .facts { grid-template-columns: minmax(0, 1fr); }
+}

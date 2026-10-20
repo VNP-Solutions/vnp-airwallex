@@ -1,5 +1,6 @@
 const paymentService = require('../services/paymentService');
 const paymentRunner = require('../services/paymentRunner');
+const disputeService = require('../services/disputeService');
 const airwallex = require('../services/airwallexService');
 
 async function createPayment(req, res, next) {
@@ -433,6 +434,17 @@ async function handleWebhook(req, res) {
     }
 
     try {
+        // Dispute events carry a dispute, not a payment intent, so they go to
+        // the service that owns them — otherwise a chargeback would sit unseen
+        // until someone pressed Sync.
+        const name = (req.body && req.body.name) || '';
+        if (name.startsWith('payment_dispute')) {
+            const dispute = await disputeService.applyWebhook(req.body);
+            return res
+                .status(200)
+                .json({ received: true, dispute: dispute ? dispute.dispute_id : null });
+        }
+
         const result = await paymentService.handleWebhookEvent(req.body);
         return res.status(200).json({ received: true, ...result, payment: undefined });
     } catch (err) {

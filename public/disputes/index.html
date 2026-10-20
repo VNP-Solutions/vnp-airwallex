@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Disputes — VNP &lt;&gt; AIRWALLEX</title>
+    <script>
+        if (!(localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token'))) {
+            window.location.replace('/login');
+        }
+    </script>
+    <link rel="stylesheet" href="/assets/sidebar.css">
+    <link rel="stylesheet" href="/assets/dashboard.css">
+    <link rel="stylesheet" href="/assets/table.css">
+    <link rel="stylesheet" href="/assets/bulk.css">
+    <link rel="stylesheet" href="disputes.css">
+</head>
+<body>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+    <div class="app-shell">
+        <div data-sidebar-mount data-active="disputes"></div>
+
+        <main class="main-content">
+            <header class="page-header">
+                <div>
+                    <h1 class="page-title">Disputes</h1>
+                    <p class="page-subtitle">Chargebacks and information requests raised against your payments.</p>
+                </div>
+                <div class="page-actions">
+                    <button class="btn btn-ghost" type="button" id="simulate-btn" hidden>Simulate one</button>
+                    <button class="btn btn-primary" type="button" id="sync-btn">
+                        <span class="btn-spinner" aria-hidden="true"></span>
+                        <span class="btn-label">Sync from Airwallex</span>
+                    </button>
+                </div>
+            </header>
+
+            <section class="stats-section">
+                <div class="stats-grid" id="stats-grid">
+                    <div class="stat-card stat-skeleton"></div>
+                    <div class="stat-card stat-skeleton"></div>
+                    <div class="stat-card stat-skeleton"></div>
+                    <div class="stat-card stat-skeleton"></div>
+                </div>
+            </section>
+
+            <section class="data-card">
+                <div class="data-card-header">
+                    <div class="filter-tabs" id="status-tabs">
+                        <button class="status-tab active" type="button" data-filter="open">Needs response</button>
+                        <button class="status-tab" type="button" data-filter="CHALLENGED">Challenged</button>
+                        <button class="status-tab" type="button" data-filter="closed">Closed</button>
+                        <button class="status-tab" type="button" data-filter="">All</button>
+                    </div>
+                    <div class="search" id="search">
+                        <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none">
+                            <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8"/>
+                            <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                        </svg>
+                        <input type="text" id="search-input" placeholder="Search dispute, order, reservation or hotel" autocomplete="off">
+                    </div>
+                </div>
+
+                <div class="data-table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Dispute</th>
+                                <th>Hotel</th>
+                                <th>Charge</th>
+                                <th>Amount</th>
+                                <th>Reason</th>
+                                <th>Stage</th>
+                                <th>Status</th>
+                                <th>Respond by</th>
+                                <th class="col-actions"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="disputes-tbody"></tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- ============ Detail / respond ============ -->
+    <div class="modal-backdrop" id="detail-modal" hidden>
+        <div class="modal modal-dispute" role="dialog" aria-modal="true">
+            <button class="modal-close" type="button" data-close="detail" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </button>
+            <div id="detail-body"></div>
+        </div>
+    </div>
+
+    <!-- ============ Accept confirmation ============ -->
+    <div class="modal-backdrop" id="accept-modal" hidden>
+        <div class="modal" role="dialog" aria-modal="true">
+            <button class="modal-close" type="button" data-close="accept" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </button>
+            <header class="modal-header">
+                <div class="modal-icon danger">
+                    <svg viewBox="0 0 24 24" fill="none"><path d="M12 9v4M12 17h.01M10.3 3.9 2.6 17a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </div>
+                <h2 class="modal-title">Accept this dispute?</h2>
+                <p class="modal-sub" id="accept-sub"></p>
+            </header>
+            <div class="run-body">
+                <div class="field">
+                    <label>Why</label>
+                    <div id="accept-reason-wrap"></div>
+                </div>
+                <div class="field">
+                    <label>Note <span class="field-hint">kept with the case</span></label>
+                    <input type="text" id="accept-note" placeholder="e.g. below the cost of defending it" autocomplete="off">
+                </div>
+                <label class="upsert-toggle">
+                    <input type="checkbox" id="accept-ack">
+                    <span class="checkbox-custom"></span>
+                    <span>I understand the money goes back to the cardholder and the case closes permanently.</span>
+                </label>
+            </div>
+            <p class="form-error" id="accept-error" role="alert" hidden></p>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" data-close="accept">Cancel</button>
+                <button type="button" class="btn btn-danger" id="accept-confirm">
+                    <span class="btn-spinner" aria-hidden="true"></span>
+                    <span class="btn-label">Accept and close</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/assets/sidebar.js"></script>
+    <script src="disputes.js"></script>
+</body>
+</html>

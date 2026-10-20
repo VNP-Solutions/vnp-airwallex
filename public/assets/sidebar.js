@@ -27,6 +27,12 @@
             icon: '<svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="20" cy="6" r="1.6"/></svg>',
         },
         {
+            key: 'disputes',
+            label: 'Disputes',
+            href: '/disputes',
+            icon: '<svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 4.4-3.1 8.3-8 9.5C7.1 20.3 4 16.4 4 12V7l8-4z"/><path d="M12 9v4M12 16h.01"/></svg>',
+        },
+        {
             key: 'finance',
             label: 'Finance',
             href: '/finance',
