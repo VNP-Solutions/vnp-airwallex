@@ -318,3 +318,18 @@
     .dispute-head { flex-direction: column; }
     .facts { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Opened upward when there is more room above the trigger than below. */
+.cselect.drop-up .cselect-menu {
+    top: auto;
+    bottom: calc(100% + 6px);
+}
+
+/* The accept dialog's fields sat flush against each other. */
+#accept-modal .run-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+#accept-modal .run-body .field { margin: 0; }
+#accept-modal .upsert-toggle { margin-top: 2px; }

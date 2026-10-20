@@ -384,6 +384,29 @@
         return el ? el.dataset.value : '';
     };
 
+    /**
+     * Fit an open menu into the room the dialog actually has.
+     *
+     * Modals scroll, so anything that hangs past their edge is clipped rather
+     * than overflowing onto the page — in the small accept dialog that hid most
+     * of the reasons. Open downward when it fits, upward when there is more
+     * room above, and otherwise cap the height and let the menu scroll.
+     */
+    function placeMenu(wrap, menu) {
+        const box = (wrap.closest('.modal') || document.body).getBoundingClientRect();
+        const trigger = wrap.querySelector('.cselect-trigger').getBoundingClientRect();
+        const gap = 14;
+        const below = box.bottom - trigger.bottom - gap;
+        const above = trigger.top - box.top - gap;
+
+        menu.style.maxHeight = '';
+        const natural = Math.min(menu.scrollHeight, 290);
+        const up = natural > below && above > below;
+
+        wrap.classList.toggle('drop-up', up);
+        menu.style.maxHeight = `${Math.max(140, Math.min(290, up ? above : below))}px`;
+    }
+
     function closeAllSelects(except) {
         document.querySelectorAll('.cselect.open').forEach((el) => {
             if (el === except) return;
@@ -413,7 +436,9 @@
             const opening = !wrap.classList.contains('open');
             closeAllSelects(wrap);
             wrap.classList.toggle('open', opening);
-            wrap.querySelector('.cselect-menu').hidden = !opening;
+            const menu = wrap.querySelector('.cselect-menu');
+            menu.hidden = !opening;
+            if (opening) placeMenu(wrap, menu);
             return;
         }
         closeAllSelects();
