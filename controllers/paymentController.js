@@ -20,6 +20,14 @@ async function createPayment(req, res, next) {
             request_id,
             merchant_order_id,
             card,
+            room_type,
+            hotel_street,
+            hotel_city,
+            hotel_postcode,
+            hotel_country,
+            guest_name,
+            check_in_date,
+            check_out_date,
         } = req.body || {};
 
         if (amount === undefined || amount === null || amount === '') {
@@ -54,6 +62,14 @@ async function createPayment(req, res, next) {
             merchant_order_id,
             card: storedCard,
             customer_label: (customer && customer.name) || undefined,
+            room_type,
+            hotel_street,
+            hotel_city,
+            hotel_postcode,
+            hotel_country,
+            guest_name,
+            check_in_date,
+            check_out_date,
             created_by: req.userId,
         });
 

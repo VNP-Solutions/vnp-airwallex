@@ -314,6 +314,7 @@ async function createPaymentIntent({
     descriptor,
     customer,
     order,
+    additional_info,
     metadata,
     return_url,
     log,
@@ -330,6 +331,9 @@ async function createPaymentIntent({
     if (descriptor) payload.descriptor = descriptor;
     if (customer) payload.customer = customer;
     if (order) payload.order = order;
+    // Travel/OTA detail for Airwallex's risk checks. The payload is built from
+    // an explicit list, so a field missing here is silently never sent.
+    if (additional_info) payload.additional_info = additional_info;
     if (metadata) payload.metadata = metadata;
     if (return_url) payload.return_url = return_url;
 

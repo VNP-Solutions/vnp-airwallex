@@ -105,6 +105,23 @@ const paymentSchema = new mongoose.Schema(
         hotel_expedia_id: { type: String, trim: true, index: true },
         hotel_name: { type: String, trim: true },
         hotel_portfolio: { type: String, trim: true, index: true },
+        /*
+         * The property's address and the stay, sent to Airwallex as the
+         * accommodation (additional_info.online_travel_agency_data) and as the
+         * seller's business address. Held per payment rather than on the hotel
+         * because they arrive with each booking.
+         */
+        hotel_street: { type: String, trim: true },
+        hotel_city: { type: String, trim: true },
+        hotel_postcode: { type: String, trim: true },
+        /** ISO 3166-1 alpha-2, e.g. US, CA. */
+        hotel_country: { type: String, trim: true, uppercase: true },
+        room_type: { type: String, trim: true },
+        /** YYYY-MM-DD. */
+        check_in_date: String,
+        check_out_date: String,
+        /** Optional — sent only when given. Not the payer: that is customer. */
+        guest_name: { type: String, trim: true },
 
         /** The uploaded file this payment came from. */
         batch: {

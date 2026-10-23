@@ -189,6 +189,48 @@
                     </div>
                 </div>
 
+                <fieldset class="stay-details">
+                    <legend>Stay details <span class="field-hint">sent to Airwallex with the hotel — fill all or none; guest name is optional</span></legend>
+                    <div class="form-row-2">
+                        <div class="field">
+                            <label>Guest Name <span class="field-hint">optional</span></label>
+                            <input type="text" name="guest_name" maxlength="200" placeholder="e.g. Jane Smith" autocomplete="off">
+                        </div>
+                        <div class="field">
+                            <label>Room Type</label>
+                            <input type="text" name="room_type" maxlength="100" placeholder="e.g. Double Room" autocomplete="off">
+                        </div>
+                    </div>
+                    <div class="form-row-2">
+                        <div class="field">
+                            <label>Check In</label>
+                            <input type="date" name="check_in_date">
+                        </div>
+                        <div class="field">
+                            <label>Check Out</label>
+                            <input type="date" name="check_out_date">
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label>Hotel Street</label>
+                        <input type="text" name="hotel_street" maxlength="1000" placeholder="e.g. 600 F St" autocomplete="off">
+                    </div>
+                    <div class="form-row-3">
+                        <div class="field">
+                            <label>Hotel City</label>
+                            <input type="text" name="hotel_city" maxlength="100" placeholder="e.g. San Diego" autocomplete="off">
+                        </div>
+                        <div class="field">
+                            <label>Hotel Post Code</label>
+                            <input type="text" name="hotel_postcode" maxlength="10" placeholder="e.g. 92101" autocomplete="off">
+                        </div>
+                        <div class="field">
+                            <label>Hotel Country</label>
+                            <input type="text" name="hotel_country" maxlength="2" placeholder="US" autocomplete="off" class="input-upper">
+                        </div>
+                    </div>
+                </fieldset>
+
                 <div class="field">
                     <label>Reference <span class="field-hint">e.g. the hotel website</span></label>
                     <input type="text" name="reference" id="reference-input" placeholder="e.g. BK-10482" autocomplete="off">

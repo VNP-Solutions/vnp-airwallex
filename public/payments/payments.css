@@ -1186,3 +1186,40 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+/* ============ Stay details on the new-payment form ============ */
+.stay-details {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 14px 14px 4px;
+    margin: 0 0 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.stay-details legend {
+    padding: 0 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #FFFFFF;
+}
+.stay-details legend .field-hint { font-weight: 400; }
+.stay-details .field { margin: 0; }
+.form-row-3 {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 0.7fr);
+    gap: 12px;
+}
+.stay-details input { width: 100%; min-width: 0; }
+.stay-details input[type='date'] { color-scheme: dark; }
+.input-upper { text-transform: uppercase; }
+.input-upper::placeholder { text-transform: none; }
+
+@media (max-width: 520px) {
+    .form-row-3 { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Labels such as "Hotel Post Code" wrap in the narrow columns; line the
+   inputs up on the bottom so the row still reads as one row. */
+.stay-details .form-row-2,
+.stay-details .form-row-3 { align-items: end; }

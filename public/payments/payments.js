@@ -569,6 +569,14 @@
             description: (formData.get('description') || '').trim() || undefined,
             descriptor: (formData.get('descriptor') || '').trim() || undefined,
             hotel_id: selectedHotel ? selectedHotel._id : undefined,
+            room_type: (formData.get('room_type') || '').trim() || undefined,
+            hotel_street: (formData.get('hotel_street') || '').trim() || undefined,
+            hotel_city: (formData.get('hotel_city') || '').trim() || undefined,
+            hotel_postcode: (formData.get('hotel_postcode') || '').trim() || undefined,
+            hotel_country: (formData.get('hotel_country') || '').trim() || undefined,
+            guest_name: (formData.get('guest_name') || '').trim() || undefined,
+            check_in_date: (formData.get('check_in_date') || '').trim() || undefined,
+            check_out_date: (formData.get('check_out_date') || '').trim() || undefined,
             customer: {
                 name: (formData.get('customer_name') || '').trim() || undefined,
                 email: (formData.get('customer_email') || '').trim() || undefined,
@@ -733,6 +741,10 @@
                         data.cards_present === data.ready
                             ? 'all with stored cards'
                             : `${data.cards_present || 0} with cards`
+                    } · ${
+                        data.stay_details_present === data.ready
+                            ? 'all with hotel details'
+                            : `${data.stay_details_present || 0} of ${data.ready} with hotel details`
                     } — nothing has been created yet.</span>
                 </div>
                 ${ignoredColumnsHtml(data)}

@@ -61,6 +61,178 @@ function assertOrderIdShape(orderId) {
  * The unique index is the real guarantee; this exists so the operator gets
  * "already used by …" instead of a raw duplicate-key error.
  */
+// Fixed values agreed with the business: every property is a hotel, guests are
+// treated as US nationals, and the guest's phone is not held for PII reasons.
+const ACCOMMODATION_TYPE = 'Hotel';
+const GUEST_NATIONALITY = 'US';
+const GUEST_PHONE = 'N/A';
+
+const COUNTRY_ALIASES = {
+    USA: 'US',
+    'UNITED STATES': 'US',
+    'UNITED STATES OF AMERICA': 'US',
+    CAN: 'CA',
+    CANADA: 'CA',
+};
+
+/** ISO 3166-1 alpha-2, from a code or a common spelling. null when unreadable. */
+function normaliseCountry(value) {
+    const raw = String(value == null ? '' : value).trim().toUpperCase();
+    if (!raw) return '';
+    if (COUNTRY_ALIASES[raw]) return COUNTRY_ALIASES[raw];
+    return /^[A-Z]{2}$/.test(raw) ? raw : null;
+}
+
+/**
+ * A stay date as YYYY-MM-DD, which is the only form Airwallex takes.
+ * Accepts that, an Excel serial, or US-style M/D/YYYY. null when unreadable.
+ */
+function normaliseStayDate(value) {
+    const raw = parseSheetDate(value);
+    if (!raw) return '';
+    let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(raw);
+    if (m) return isoDate(m[1], m[2], m[3]);
+    m = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/.exec(raw);
+    if (m) return isoDate(m[3].length === 2 ? `20${m[3]}` : m[3], m[1], m[2]);
+    return null;
+}
+
+function isoDate(y, mo, d) {
+    const date = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d)));
+    if (Number.isNaN(date.getTime()) || date.getUTCDate() !== Number(d)) return null;
+    return date.toISOString().slice(0, 10);
+}
+
+const STAY_LABELS = {
+    hotel: 'Hotel',
+    room_type: 'Room Type',
+    check_in_date: 'Check In',
+    check_out_date: 'Check Out',
+    hotel_street: 'Hotel Street',
+    hotel_city: 'Hotel City',
+    hotel_postcode: 'Hotel Post Code',
+    hotel_country: 'Hotel Country',
+};
+
+/**
+ * The property and the stay, in the two shapes Airwallex reads them.
+ *
+ *   order.sellers[]                    identifier (OTA id), name, business address
+ *   additional_info.online_travel_agency_data.accommodations[]
+ *                                      name, type, room_type, stay dates, guest, address
+ *
+ * The accommodation is all-or-nothing. Airwallex refuses the whole payment
+ * intent unless every required field is present (tested on sandbox), so:
+ *   - none of the stay fields given  -> no accommodation, seller only
+ *   - all of them given              -> sent
+ *   - some but not all               -> an error naming what is missing,
+ *                                       rather than a payment that cannot be created
+ *
+ * Returns the normalised values for storage, the two Airwallex blocks, and any
+ * problems for the caller to report.
+ */
+function buildStay(input = {}) {
+    const hotel = input.hotel || null;
+    const v = {
+        room_type: String(input.room_type || '').trim(),
+        hotel_street: String(input.hotel_street || '').trim(),
+        hotel_city: String(input.hotel_city || '').trim(),
+        hotel_postcode: String(input.hotel_postcode || '').trim(),
+        hotel_country: normaliseCountry(input.hotel_country),
+        guest_name: String(input.guest_name || '').trim(),
+        check_in_date: normaliseStayDate(input.check_in_date),
+        check_out_date: normaliseStayDate(input.check_out_date),
+    };
+
+    const problems = [];
+    if (v.hotel_country === null) problems.push('Hotel Country must be a 2-letter code such as US or CA');
+    if (v.check_in_date === null) problems.push('Check In is not a readable date');
+    if (v.check_out_date === null) problems.push('Check Out is not a readable date');
+    if (v.hotel_street.length > 1000) problems.push('Hotel Street is longer than 1000 characters');
+    if (v.hotel_city.length > 100) problems.push('Hotel City is longer than 100 characters');
+    if (v.hotel_postcode.length > 10) problems.push('Hotel Post Code is longer than 10 characters');
+    if (v.room_type.length > 100) problems.push('Room Type is longer than 100 characters');
+    if (v.guest_name.length > 200) problems.push('Guest Name is longer than 200 characters');
+    if (
+        v.check_in_date &&
+        v.check_out_date &&
+        v.check_out_date < v.check_in_date
+    ) {
+        problems.push('Check Out is before Check In');
+    }
+
+    const name = hotel ? String(hotel.name || '').trim().slice(0, 100) : '';
+    const identifier = hotel ? String(hotel.expedia_id || '').trim().slice(0, 64) : '';
+
+    // The fields that decide whether an accommodation is being described at
+    // all. Stay dates are not among them: older booking files carry Check In /
+    // Check Out without any of the hotel-address columns.
+    const describing = ['room_type', 'hotel_street', 'hotel_postcode', 'hotel_country'].some(
+        (k) => v[k]
+    );
+
+    let accommodation = null;
+    if (describing) {
+        // Blank only — a value that was given but unreadable (null) has
+        // already been reported above and is not "missing" as well.
+        const missing = Object.keys(STAY_LABELS).filter((k) =>
+            k === 'hotel' ? !name : v[k] === ''
+        );
+        if (missing.length) {
+            problems.push(
+                `Hotel details are incomplete — also needs ${missing
+                    .map((k) => STAY_LABELS[k])
+                    .join(', ')}`
+            );
+        } else if (!problems.length) {
+            accommodation = {
+                name,
+                type: ACCOMMODATION_TYPE,
+                room_type: v.room_type,
+                check_in_date: v.check_in_date,
+                check_out_date: v.check_out_date,
+                guest_phone: GUEST_PHONE,
+                guest_nationality: GUEST_NATIONALITY,
+                // Only when given — an empty guest name is not sent.
+                ...(v.guest_name ? { guest_name: v.guest_name } : {}),
+                address: {
+                    street: v.hotel_street,
+                    city: v.hotel_city,
+                    postcode: v.hotel_postcode,
+                    country_code: v.hotel_country,
+                },
+            };
+        }
+    }
+
+    // The seller carries whatever address parts we have.
+    const sellerAddress = {
+        ...(v.hotel_street ? { street: v.hotel_street } : {}),
+        ...(v.hotel_city ? { city: v.hotel_city } : {}),
+        ...(v.hotel_postcode ? { postcode: v.hotel_postcode } : {}),
+        ...(v.hotel_country ? { country_code: v.hotel_country } : {}),
+    };
+
+    return {
+        values: v,
+        problems,
+        sellers: hotel
+            ? [
+                  {
+                      ...(identifier ? { identifier } : {}),
+                      ...(name ? { name } : {}),
+                      ...(Object.keys(sellerAddress).length
+                          ? { business_info: { address: sellerAddress } }
+                          : {}),
+                  },
+              ]
+            : undefined,
+        additional_info: accommodation
+            ? { online_travel_agency_data: { accommodations: [accommodation] } }
+            : undefined,
+    };
+}
+
 /**
  * A request_id that Airwallex cannot have seen before.
  *
@@ -317,6 +489,14 @@ async function createPayment({
     card,
     customer_label,
     batch,
+    room_type,
+    hotel_street,
+    hotel_city,
+    hotel_postcode,
+    hotel_country,
+    guest_name,
+    check_in_date,
+    check_out_date,
 }) {
     const numericAmount = roundAmount(amount);
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
@@ -330,6 +510,19 @@ async function createPayment({
     }
 
     const hotel = await resolveHotel({ hotel_id, expedia_id });
+
+    const travel = buildStay({
+        hotel,
+        room_type,
+        hotel_street,
+        hotel_city,
+        hotel_postcode,
+        hotel_country,
+        guest_name,
+        check_in_date,
+        check_out_date,
+    });
+    if (travel.problems.length) throw badRequest(travel.problems.join('; '));
 
     // Descriptor precedence: an explicit override, else the selected hotel's
     // descriptor, else the configured default. The hotel's descriptor is the
@@ -405,17 +598,24 @@ async function createPayment({
                   phone_number: cleanCustomer.phone,
               }
             : undefined,
-        order: description
-            ? {
-                  products: [
-                      {
-                          name: description.slice(0, 120),
-                          quantity: 1,
-                          unit_price: numericAmount,
-                      },
-                  ],
-              }
-            : undefined,
+        order:
+            description || travel.sellers
+                ? {
+                      ...(description
+                          ? {
+                                products: [
+                                    {
+                                        name: description.slice(0, 120),
+                                        quantity: 1,
+                                        unit_price: numericAmount,
+                                    },
+                                ],
+                            }
+                          : {}),
+                      ...(travel.sellers ? { sellers: travel.sellers } : {}),
+                  }
+                : undefined,
+        ...(travel.additional_info ? { additional_info: travel.additional_info } : {}),
         metadata: {
             ...(metadata || {}),
             source: 'vnp-airwallex',
@@ -469,6 +669,14 @@ async function createPayment({
         hotel_expedia_id: hotel ? hotel.expedia_id : undefined,
         hotel_name: hotel ? hotel.name : undefined,
         hotel_portfolio: hotel ? hotel.portfolio : undefined,
+        room_type: travel.values.room_type || undefined,
+        hotel_street: travel.values.hotel_street || undefined,
+        hotel_city: travel.values.hotel_city || undefined,
+        hotel_postcode: travel.values.hotel_postcode || undefined,
+        hotel_country: travel.values.hotel_country || undefined,
+        guest_name: travel.values.guest_name || undefined,
+        check_in_date: travel.values.check_in_date || undefined,
+        check_out_date: travel.values.check_out_date || undefined,
         batch: batch || undefined,
         batch_name: batch_name || undefined,
         customer_label: customer_label || undefined,
@@ -1185,6 +1393,12 @@ const BULK_PAYMENT_HEADERS = [
     'Reservation ID',
     'Hotel Confirmation Code',
     'Customer',
+    'Guest Name',
+    'Room Type',
+    'Hotel Street',
+    'Hotel City',
+    'Hotel Post Code',
+    'Hotel Country',
     'Check In',
     'Check Out',
     'Currency',
@@ -1225,6 +1439,22 @@ const BULK_HEADER_TO_FIELD = {
     // 'Guest name' is the hotel guest, not the payer — deliberately unmapped.
     'guest email': 'customer_email',
     'customer email': 'customer_email',
+    // The property and the stay — sent to Airwallex as the accommodation and
+    // the seller's business address.
+    'guest name': 'guest_name',
+    'room type': 'room_type',
+    'hotel street': 'hotel_street',
+    street: 'hotel_street',
+    'hotel city': 'hotel_city',
+    city: 'hotel_city',
+    'property city': 'hotel_city',
+    'hotel post code': 'hotel_postcode',
+    'hotel postcode': 'hotel_postcode',
+    'hotel postal code': 'hotel_postcode',
+    'post code': 'hotel_postcode',
+    postcode: 'hotel_postcode',
+    'hotel country': 'hotel_country',
+    country: 'hotel_country',
     'check in': 'check_in',
     'check out': 'check_out',
     currency: 'currency',
@@ -1254,7 +1484,9 @@ const BULK_HEADER_TO_FIELD = {
  */
 // Card columns are now read and stored encrypted (see cardVault). The guest
 // name is read but discarded: the payer, not the guest, is what Airwallex needs.
-const BULK_IGNORED_HEADERS = ['guest name'];
+// Guest name used to be dropped here; it is now read and sent, optionally, as
+// the accommodation's guest_name. Nothing is ignored at present.
+const BULK_IGNORED_HEADERS = [];
 
 // No cap on rows: a real booking export is however long it is, and creation
 // already runs in the background with per-row progress. The parser's own
@@ -1283,6 +1515,12 @@ function bulkPaymentTemplate() {
             'Reservation ID': '2497667019',
             'Hotel Confirmation Code': '150927RA015397',
             Customer: 'Expedia Group',
+            'Guest Name': 'Jane Smith',
+            'Room Type': 'Double Room',
+            'Hotel Street': '600 F St',
+            'Hotel City': 'San Diego',
+            'Hotel Post Code': '92101',
+            'Hotel Country': 'US',
             'Check In': '2026-07-02',
             'Check Out': '2026-07-03',
             Currency: 'USD',
@@ -1648,6 +1886,24 @@ async function validateBulkPayments(
             card = { pan: rawPan, expiry, cvv };
         }
 
+        // Checked here, with everything else, so a half-filled address is a
+        // line in the error list rather than a row that fails at Airwallex.
+        const stay = buildStay({
+            hotel: hotel || { name: pendingHotel.name, expedia_id: otaId },
+            room_type: row.room_type,
+            hotel_street: row.hotel_street,
+            hotel_city: row.hotel_city,
+            hotel_postcode: row.hotel_postcode,
+            hotel_country: row.hotel_country,
+            guest_name: row.guest_name,
+            check_in_date: row.check_in,
+            check_out_date: row.check_out,
+        });
+        if (stay.problems.length) {
+            errors.push({ line, error: stay.problems.join('; ') });
+            continue;
+        }
+
         const checkIn = parseSheetDate(row.check_in);
         const checkOut = parseSheetDate(row.check_out);
         const confirmation = (row.confirmation_code || '').trim();
@@ -1689,6 +1945,8 @@ async function validateBulkPayments(
             // Held separately from `customer` because it is also the name that
             // goes on the card during the automated run.
             customer_label: (row.customer_name || '').trim() || undefined,
+            ...stay.values,
+            has_stay_details: !!stay.additional_info,
             card,
             has_card: !!card,
             // Booking detail is kept as metadata rather than squeezed into the
@@ -1725,6 +1983,8 @@ async function validateBulkPayments(
             card_expiry: row.card ? row.card.expiry : undefined,
         })),
         cards_present: prepared.filter((r) => r.has_card).length,
+        // Rows that will carry the full accommodation to Airwallex.
+        stay_details_present: prepared.filter((r) => r.has_stay_details).length,
         totals: Object.entries(totals).map(([currency, amount]) => ({ currency, amount })),
         ignored_columns: ignoredColumns,
         hotels_to_create: [...newHotels.values()].map((h) => ({
@@ -1870,6 +2130,14 @@ async function runBulkPayments(jobId, prepared, { userId, checkout_mode, fileLab
                 batch_name: fileLabel,
                 card: row.card,
                 customer_label: row.customer_label,
+                room_type: row.room_type,
+                hotel_street: row.hotel_street,
+                hotel_city: row.hotel_city,
+                hotel_postcode: row.hotel_postcode,
+                hotel_country: row.hotel_country,
+                guest_name: row.guest_name,
+                check_in_date: row.check_in_date,
+                check_out_date: row.check_out_date,
             });
 
             results.push({
@@ -2072,6 +2340,14 @@ const EXPORT_HEADERS = [
     'OTA ID',
     'Hotel',
     'Portfolio',
+    'Guest Name',
+    'Room Type',
+    'Hotel Street',
+    'Hotel City',
+    'Hotel Post Code',
+    'Hotel Country',
+    'Check In',
+    'Check Out',
     'Customer Name',
     'Customer Email',
     'Card Brand',
@@ -2120,6 +2396,14 @@ function toExportRow(p) {
         'OTA ID': p.hotel_expedia_id || '',
         Hotel: p.hotel_name || '',
         Portfolio: p.hotel_portfolio || '',
+        'Guest Name': p.guest_name || '',
+        'Room Type': p.room_type || '',
+        'Hotel Street': p.hotel_street || '',
+        'Hotel City': p.hotel_city || '',
+        'Hotel Post Code': p.hotel_postcode || '',
+        'Hotel Country': p.hotel_country || '',
+        'Check In': p.check_in_date || (p.metadata && p.metadata.check_in) || '',
+        'Check Out': p.check_out_date || (p.metadata && p.metadata.check_out) || '',
         'Customer Name': (p.customer && p.customer.name) || '',
         'Customer Email': (p.customer && p.customer.email) || '',
         'Card Brand': p.card_brand || '',
