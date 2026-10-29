@@ -11,11 +11,33 @@ const { bearer } = require('../middleware/authMiddleware');
  * their own failures rather than passing them on and losing the code.
  */
 
+/**
+ * Every reply is in the VNP envelope, { success, message, data } — the shape the
+ * portal's single connector reads from DBMS and Dashboard. `error` and `code`
+ * are kept alongside on failures because the guide names them.
+ *
+ * `flat` also spreads the data at the top level. Login, refresh and /auth/me are
+ * documented with their fields at the top; sending both satisfies a connector
+ * that reads either.
+ */
+function ok(res, data, { status = 200, message = 'OK', flat = false } = {}) {
+    return res.status(status).json({
+        success: true,
+        message,
+        data,
+        ...(flat && data && typeof data === 'object' ? data : {}),
+    });
+}
+
 function fail(res, next, err) {
     if (err && err.statusCode && err.statusCode < 500) {
-        return res
-            .status(err.statusCode)
-            .json({ error: err.message, ...(err.code ? { code: err.code } : {}) });
+        return res.status(err.statusCode).json({
+            success: false,
+            message: err.message,
+            error: err.message,
+            data: null,
+            ...(err.code ? { code: err.code } : {}),
+        });
     }
     return next(err);
 }
@@ -32,16 +54,16 @@ const wrap = (fn) => async (req, res, next) => {
 
 const login = wrap(async (req, res) => {
     const { email, password } = req.body || {};
-    res.json(await portal.login({ email, password }));
+    ok(res, await portal.login({ email, password }), { flat: true });
 });
 
 const refresh = wrap(async (req, res) => {
-    res.json(await portal.refresh({ refresh_token: (req.body || {}).refresh_token }));
+    ok(res, await portal.refresh({ refresh_token: (req.body || {}).refresh_token }), { flat: true });
 });
 
 /** Carries the PERSON's access token, not the service token. */
 const me = wrap(async (req, res) => {
-    res.json(await portal.me(bearer(req)));
+    ok(res, await portal.me(bearer(req)), { flat: true });
 });
 
 // ============== Handoff ==============
@@ -107,7 +129,14 @@ async function handoffPost(req, res, next) {
     const portalUrl = process.env.ACCESS_PORTAL_URL || null;
     const reply = (status, code, error) => {
         log(trace, `POST ${status} ${code}`);
-        return res.status(status).json({ error, code, ...(portalUrl ? { portal_url: portalUrl } : {}) });
+        return res.status(status).json({
+            success: false,
+            message: error,
+            error,
+            code,
+            data: null,
+            ...(portalUrl ? { portal_url: portalUrl } : {}),
+        });
     };
 
     try {
@@ -157,7 +186,7 @@ async function handoffPost(req, res, next) {
 
         session.setSessionCookies(res, tokens);
         log(trace, `POST 200 cookies=${session.ACCESS_COOKIE},${session.REFRESH_COOKIE}`);
-        return res.json({ data: { user } });
+        return ok(res, { user }, { message: 'Signed in' });
     } catch (err) {
         log(trace, `POST error ${err.message}`);
         return next(err);
@@ -167,31 +196,31 @@ async function handoffPost(req, res, next) {
 // ============== Users ==============
 
 const findUser = wrap(async (req, res) => {
-    res.json({ data: await portal.findByEmail(req.query.email) });
+    ok(res, await portal.findByEmail(req.query.email));
 });
 
 const createUser = wrap(async (req, res) => {
-    res.status(201).json({ data: await portal.createUser(req.body || {}) });
+    ok(res, await portal.createUser(req.body || {}), { status: 201, message: 'User created' });
 });
 
 const getUser = wrap(async (req, res) => {
-    res.json({ data: await portal.getUser(req.params.id) });
+    ok(res, await portal.getUser(req.params.id));
 });
 
 const setPassword = wrap(async (req, res) => {
-    res.json({ data: await portal.setPassword(req.params.id, (req.body || {}).password) });
+    ok(res, await portal.setPassword(req.params.id, (req.body || {}).password), { message: 'Password updated' });
 });
 
 const setRole = wrap(async (req, res) => {
-    res.json({ data: await portal.setRole(req.params.id, (req.body || {}).role_id) });
+    ok(res, await portal.setRole(req.params.id, (req.body || {}).role_id), { message: 'Role updated' });
 });
 
 const setStatus = wrap(async (req, res) => {
-    res.json({ data: await portal.setStatus(req.params.id, (req.body || {}).is_active) });
+    ok(res, await portal.setStatus(req.params.id, (req.body || {}).is_active), { message: 'Status updated' });
 });
 
 const listRoles = wrap(async (req, res) => {
-    res.json({ data: portal.listRoles() });
+    ok(res, portal.listRoles());
 });
 
 module.exports = {

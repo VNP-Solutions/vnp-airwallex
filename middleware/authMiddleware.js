@@ -77,7 +77,7 @@ function requireCommunicationSecret(req, res, next) {
     const configured = process.env.JWT_COMMUNICATION_SECRET;
     const given = bearer(req);
     if (!configured || !given || !secretsMatch(given, configured)) {
-        return res.status(401).json({ error: 'Invalid communication secret' });
+        return res.status(401).json({ success: false, message: 'Invalid communication secret', error: 'Invalid communication secret', data: null });
     }
     return next();
 }
@@ -91,15 +91,15 @@ function requireCommunicationSecret(req, res, next) {
  */
 function requireServiceToken(req, res, next) {
     const token = bearer(req);
-    if (!token) return res.status(401).json({ error: 'Service token required' });
+    if (!token) return res.status(401).json({ success: false, message: 'Service token required', error: 'Service token required', data: null });
     try {
         const payload = jwt.verify(token, process.env.JWT_SECRET || '');
         if (payload.type !== SERVICE_TOKEN_TYPE) {
-            return res.status(401).json({ error: 'Service token required' });
+            return res.status(401).json({ success: false, message: 'Service token required', error: 'Service token required', data: null });
         }
         return next();
     } catch (err) {
-        return res.status(401).json({ error: 'Invalid or expired service token' });
+        return res.status(401).json({ success: false, message: 'Invalid or expired service token', error: 'Invalid or expired service token', data: null });
     }
 }
 
