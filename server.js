@@ -18,6 +18,7 @@ const openapiSpec = require('./docs/openapi');
 const { failStaleBatches } = require('./services/paymentService');
 const { failStaleRuns } = require('./services/paymentRunner');
 const airwallex = require('./services/airwallexService');
+const { requestLogger } = require('./middleware/requestLogger');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -26,6 +27,10 @@ const PORT = process.env.PORT || 3000;
 // from a proxy on loopback — a forwarded header from anywhere else is ignored.
 // The handoff's rate limit keys on the client IP.
 app.set('trust proxy', 'loopback');
+
+// First, so every API request is logged — including ones whose body cannot be
+// parsed and never reach a route.
+app.use(requestLogger);
 
 // Keep the untouched request bytes around: Airwallex signs the raw webhook
 // body, and a re-serialised object will not reproduce their HMAC.
@@ -66,8 +71,10 @@ app.use('/api/access-portal/v1', accessPortalRoutes);
 app.use('/api/external-auth', externalAuthRoutes);
 
 app.use((err, req, res, next) => {
-    console.error(err);
-    const status = err.statusCode || 500;
+    // The request id matches this to its [api] line and to X-Request-Id.
+    console.error(`[error] id=${req.id} ${req.method} ${req.originalUrl.split('?')[0]}`, err);
+    // A body that is not valid JSON is the caller's mistake, not ours.
+    const status = err.statusCode || err.status || 500;
     res.status(status).json({ error: err.message || 'Internal server error' });
 });
 
