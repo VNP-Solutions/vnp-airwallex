@@ -52,17 +52,14 @@
     let revokeTargetId = null;
 
     // ============== Auth ==============
-    function getToken() {
-        return localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-    }
+    // The session travels in HttpOnly cookies, sent automatically on every
+    // same-origin request — there is no token to attach.
     function authHeaders() {
-        return { Authorization: `Bearer ${getToken()}` };
+        return {};
     }
 
-    currentUserId =
-        localStorage.getItem('auth_user_id') ||
-        sessionStorage.getItem('auth_user_id') ||
-        null;
+    // Set by the session check from the server's answer; display use only.
+    currentUserId = localStorage.getItem('auth_user_id') || null;
 
     // ============== Helpers ==============
     function escapeHtml(s) {

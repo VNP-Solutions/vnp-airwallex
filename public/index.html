@@ -5,9 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VNP &lt;&gt; AIRWALLEX</title>
     <script>
-        const __token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-        const __userId = localStorage.getItem('auth_user_id') || sessionStorage.getItem('auth_user_id');
-        window.location.replace(__token && __userId ? '/dashboard' : '/login');
+        // The session is in HttpOnly cookies, so ask the server rather than
+        // looking in storage. A lapsed access cookie is renewed once.
+        (async () => {
+            const me = () => fetch('/api/auth/me', { credentials: 'same-origin' });
+            let res = await me().catch(() => null);
+            if (res && res.status === 401) {
+                const renewed = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' })
+                    .then((r) => r.ok)
+                    .catch(() => false);
+                if (renewed) res = await me().catch(() => null);
+            }
+            window.location.replace(res && res.ok ? '/dashboard' : '/login');
+        })();
     </script>
 </head>
 <body></body>

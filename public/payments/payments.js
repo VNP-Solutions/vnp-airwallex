@@ -123,11 +123,10 @@
     let jobPollTimer = null;
 
     // ============== Auth ==============
-    function getToken() {
-        return localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-    }
+    // The session travels in HttpOnly cookies, sent automatically on every
+    // same-origin request — there is no token to attach.
     function authHeaders() {
-        return { Authorization: `Bearer ${getToken()}` };
+        return {};
     }
 
     async function api(path, options = {}) {

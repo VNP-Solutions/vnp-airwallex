@@ -56,9 +56,8 @@
     let bulkMode = 'import';
 
     // ============== API ==============
-    function getToken() {
-        return localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-    }
+    // The session travels in HttpOnly cookies, sent automatically on every
+    // same-origin request — there is no token to attach.
 
     async function api(path, options = {}) {
         const res = await fetch(path, {
@@ -66,7 +65,6 @@
             headers: {
                 ...(options.body && !options.rawBody ? { 'Content-Type': 'application/json' } : {}),
                 ...(options.rawBody ? { 'Content-Type': 'text/csv' } : {}),
-                Authorization: `Bearer ${getToken()}`,
                 ...(options.headers || {}),
             },
         });
@@ -325,8 +323,7 @@
                 method: 'POST',
                 headers: {
                     'Content-Type': BulkUpload.contentTypeFor(file),
-                    Authorization: `Bearer ${getToken()}`,
-                },
+                    },
                 body: file,
             });
             if (res.status === 401) {

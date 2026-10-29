@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="no-referrer">
+    <title>Signing you in — VNP &lt;&gt; AIRWALLEX</title>
+    <link rel="stylesheet" href="/auth/handoff/handoff.css">
+</head>
+<body>
+    <!-- Deliberately not behind the session check every other page has: there
+         is no session yet when this page loads, and the one it is about to
+         create replaces any that exists. -->
+    <main class="handoff-card" aria-live="polite">
+        <img src="/assets/logo.svg" alt="VNP" class="handoff-logo">
+
+        <section id="state-working">
+            <div class="handoff-spinner" aria-hidden="true"></div>
+            <h1>Signing you in…</h1>
+            <p>Opening VNP &lt;&gt; Airwallex from the Access Portal.</p>
+        </section>
+
+        <section id="state-failed" hidden>
+            <div class="handoff-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M12 8v5M12 16.5h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.7"/></svg>
+            </div>
+            <h1>We couldn't sign you in</h1>
+            <p id="failed-reason">Open this system again from the Access Portal.</p>
+            <a class="handoff-btn" id="portal-link" href="#" hidden>Back to the Access Portal</a>
+        </section>
+    </main>
+
+    <script src="/auth/handoff/handoff.js"></script>
+</body>
+</html>

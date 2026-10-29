@@ -12,6 +12,8 @@ const hotelRoutes = require('./routes/hotelRoutes');
 const financeRoutes = require('./routes/financeRoutes');
 const batchRoutes = require('./routes/batchRoutes');
 const disputeRoutes = require('./routes/disputeRoutes');
+const accessPortalRoutes = require('./routes/accessPortalRoutes');
+const externalAuthRoutes = require('./routes/externalAuthRoutes');
 const openapiSpec = require('./docs/openapi');
 const { failStaleBatches } = require('./services/paymentService');
 const { failStaleRuns } = require('./services/paymentRunner');
@@ -19,6 +21,11 @@ const airwallex = require('./services/airwallexService');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Behind nginx on the same box: take the client IP and scheme from it, but only
+// from a proxy on loopback — a forwarded header from anywhere else is ignored.
+// The handoff's rate limit keys on the client IP.
+app.set('trust proxy', 'loopback');
 
 // Keep the untouched request bytes around: Airwallex signs the raw webhook
 // body, and a re-serialised object will not reproduce their HMAC.
@@ -29,6 +36,13 @@ app.use(
         },
     })
 );
+// The Access Portal handoff page. Served directly rather than as a directory
+// index, which express.static would first redirect to a trailing slash.
+app.get('/auth/handoff', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.sendFile(path.join(__dirname, 'public', 'auth', 'handoff', 'index.html'));
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // API Documentation
@@ -48,6 +62,8 @@ app.use('/api/hotels', hotelRoutes);
 app.use('/api/finance', financeRoutes);
 app.use('/api/batches', batchRoutes);
 app.use('/api/disputes', disputeRoutes);
+app.use('/api/access-portal/v1', accessPortalRoutes);
+app.use('/api/external-auth', externalAuthRoutes);
 
 app.use((err, req, res, next) => {
     console.error(err);

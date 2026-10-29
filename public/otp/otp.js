@@ -93,13 +93,13 @@
 
     inputs[0].focus();
 
-    function storeAuth({ userId, token, first_name, last_name, email: userEmail }) {
-        const storage = remember ? localStorage : sessionStorage;
-        storage.setItem('auth_token', token);
-        storage.setItem('auth_user_id', userId);
-        if (first_name) storage.setItem('auth_first_name', first_name);
-        if (last_name) storage.setItem('auth_last_name', last_name);
-        if (userEmail) storage.setItem('auth_email', userEmail);
+    // The session itself is set by the server in HttpOnly cookies; this keeps
+    // only the details the pages display.
+    function storeAuth(user) {
+        localStorage.setItem('auth_user_id', user.id || '');
+        localStorage.setItem('auth_first_name', user.first_name || '');
+        localStorage.setItem('auth_last_name', user.last_name || '');
+        localStorage.setItem('auth_email', user.email || '');
         // Clear pending login state regardless.
         sessionStorage.removeItem('pending_login_email');
         sessionStorage.removeItem('pending_login_remember');
@@ -121,7 +121,9 @@
             const res = await fetch('/api/auth/verify', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, otp }),
+                // "Remember me" now decides whether the session cookies
+                // outlive the browser.
+                body: JSON.stringify({ email, otp, remember }),
             });
 
             const data = await res.json().catch(() => ({}));
@@ -134,7 +136,7 @@
                 return;
             }
 
-            storeAuth(data);
+            storeAuth((data.data && data.data.user) || {});
             window.location.href = '/';
         } catch (err) {
             console.error(err);

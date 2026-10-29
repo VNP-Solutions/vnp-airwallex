@@ -31,13 +31,18 @@ function signResetToken(userId) {
     );
 }
 
+/** Trimmed and lowercased, then compared with plain equality — never a regex. */
+function normaliseEmail(email) {
+    return String(email || '').trim().toLowerCase();
+}
+
 function generateOtp() {
     const n = crypto.randomInt(0, 1_000_000);
     return n.toString().padStart(6, '0');
 }
 
 async function login({ email, password }) {
-    const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
+    const user = await User.findOne({ email: normaliseEmail(email) }).select('+password');
     if (!user) {
         const err = new Error('Invalid email or password');
         err.statusCode = 401;
@@ -80,7 +85,7 @@ async function login({ email, password }) {
 }
 
 async function verifyOtp({ email, otp }) {
-    const user = await User.findOne({ email: email.toLowerCase() }).select(
+    const user = await User.findOne({ email: normaliseEmail(email) }).select(
         '+otp_hash +otp_expires_at'
     );
     if (!user || !user.otp_hash || !user.otp_expires_at) {
@@ -109,19 +114,19 @@ async function verifyOtp({ email, otp }) {
     user.otp_expires_at = undefined;
     await user.save();
 
-    const token = signToken(user._id);
-    return {
-        userId: user._id.toString(),
-        token,
-        first_name: user.first_name,
-        last_name: user.last_name,
-        email: user.email,
-    };
+    // Re-checked here as well as at login: access can be removed between the
+    // two steps.
+    if (user.status !== 'active') {
+        const err = new Error('Your access has been revoked. Contact an administrator.');
+        err.statusCode = 403;
+        throw err;
+    }
+    return user;
 }
 
 async function requestPasswordReset({ email }) {
     // Don't reveal whether the email exists — always return success.
-    const normalized = email.toLowerCase();
+    const normalized = normaliseEmail(email);
     const user = await User.findOne({ email: normalized });
 
     if (user) {
@@ -149,7 +154,7 @@ async function requestPasswordReset({ email }) {
 }
 
 async function verifyPasswordResetOtp({ email, otp }) {
-    const user = await User.findOne({ email: email.toLowerCase() }).select(
+    const user = await User.findOne({ email: normaliseEmail(email) }).select(
         '+reset_otp_hash +reset_otp_expires_at'
     );
     if (!user || !user.reset_otp_hash || !user.reset_otp_expires_at) {
@@ -221,6 +226,7 @@ module.exports = {
     login,
     verifyOtp,
     signToken,
+    normaliseEmail,
     requestPasswordReset,
     verifyPasswordResetOtp,
     resetPassword,

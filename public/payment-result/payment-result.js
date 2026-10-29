@@ -77,8 +77,10 @@
     }
 
     // Operators land back in the app; shoppers just see the outcome.
-    const isOperator =
-        localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+    // Operators land back in the app; anyone else just sees the outcome. Only
+    // decides whether to show the link — the payments page checks for itself.
+    // A signed-out visitor has no display details stored.
+    const isOperator = Boolean(localStorage.getItem('auth_user_id'));
     if (!isOperator) {
         continueEl.hidden = true;
     }

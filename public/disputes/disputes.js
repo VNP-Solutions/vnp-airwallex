@@ -1,10 +1,6 @@
 (() => {
-    const token =
-        localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-    if (!token) {
-        window.location.replace('/login');
-        return;
-    }
+    // The session travels in HttpOnly cookies, sent automatically on every
+    // same-origin request — there is no token to attach.
 
     async function api(path, options = {}) {
         const res = await fetch(path, {
@@ -13,7 +9,6 @@
                 ...(options.body && !(options.body instanceof ArrayBuffer)
                     ? { 'Content-Type': 'application/json' }
                     : {}),
-                Authorization: `Bearer ${token}`,
                 ...(options.headers || {}),
             },
         });
@@ -793,8 +788,7 @@
                 {
                     method: 'POST',
                     headers: {
-                        Authorization: `Bearer ${token}`,
-                        'Content-Type': file.type || 'application/octet-stream',
+                                'Content-Type': file.type || 'application/octet-stream',
                     },
                     body: buf,
                 }

@@ -5,8 +5,10 @@
  * 401 — every download is fetched with the bearer token and saved from a blob.
  */
 window.BulkUpload = (() => {
+    // Kept for callers that still ask; the session is in HttpOnly cookies now,
+    // sent automatically, so there is never a token to hand out.
     function getToken() {
-        return localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+        return null;
     }
 
     function escapeHtml(value) {
@@ -18,7 +20,7 @@ window.BulkUpload = (() => {
 
     /** Fetch a protected CSV endpoint and save it as a file. */
     async function download(url, fallbackName = 'download.csv') {
-        const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
+        const res = await fetch(url);
         if (res.status === 401) {
             window.location.replace('/login');
             return;

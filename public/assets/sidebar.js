@@ -170,18 +170,10 @@
 
         const logoutBtn = document.querySelector('[data-logout]');
         if (logoutBtn) {
+            // The server has to clear the session: its cookies are HttpOnly.
             logoutBtn.addEventListener('click', () => {
-                [
-                    'auth_token',
-                    'auth_user_id',
-                    'auth_first_name',
-                    'auth_last_name',
-                    'auth_email',
-                ].forEach((k) => {
-                    localStorage.removeItem(k);
-                    sessionStorage.removeItem(k);
-                });
-                window.location.replace('/login');
+                if (window.Session) window.Session.signOut();
+                else window.location.replace('/login');
             });
         }
     }

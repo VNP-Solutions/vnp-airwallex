@@ -1,12 +1,8 @@
 (() => {
-    const token =
-        localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-    if (!token) {
-        window.location.replace('/login');
-        return;
-    }
+    // The session travels in HttpOnly cookies, sent automatically on every
+    // same-origin request — there is no token to attach.
     function authHeaders() {
-        return { Authorization: `Bearer ${token}` };
+        return {};
     }
 
     async function api(path, options = {}) {
