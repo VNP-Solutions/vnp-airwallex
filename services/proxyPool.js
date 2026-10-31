@@ -95,12 +95,15 @@ function next() {
     }
     usedOnCurrent += 1;
 
-    const ip = c.ips[cursor];
+    return exitFor(c, c.ips[cursor], cursor, usedOnCurrent);
+}
+
+function exitFor(c, ip, index, useCount = 0) {
     return {
         ip,
-        index: cursor,
+        index,
         poolSize: c.ips.length,
-        useCount: usedOnCurrent,
+        useCount,
         rotateEvery: c.rotateEvery,
         server: `http://${c.host}:${c.port}`,
         credentials: { username: `${c.username}-ip-${ip}`, password: c.password },
@@ -158,7 +161,12 @@ function getThroughProxy(exit, host, path, timeoutMs = 20000) {
         req.on('connect', (res, socket) => {
             if (res.statusCode !== 200) {
                 socket.destroy();
-                return done(reject, proxyError(`Proxy refused ${exit.ip}: HTTP ${res.statusCode}`));
+                const hint =
+                    {
+                        407: ' — zone username or password rejected',
+                        403: " — this server's IP may not be on the zone's allowlist in Bright Data",
+                    }[res.statusCode] || '';
+                return done(reject, proxyError(`Proxy refused ${exit.ip}: HTTP ${res.statusCode}${hint}`));
             }
             const secure = tls.connect({ socket, servername: host }, () => {
                 secure.write(`GET ${path} HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n`);
@@ -203,4 +211,63 @@ async function timezoneFor(exit) {
     return tz;
 }
 
-module.exports = { enabled, assertConfigured, next, status, timezoneFor };
+/**
+ * Try every IP in the pool, in parallel, without moving the rotation.
+ *
+ * Run at startup so a broken zone, a wrong password or a dead IP shows up in
+ * the boot log rather than in the first failed payment. It also looks up and
+ * caches each IP's timezone, so no payment pays for that lookup later.
+ */
+async function checkAll() {
+    const c = assertConfigured();
+    return Promise.all(
+        c.ips.map(async (ip, index) => {
+            const started = Date.now();
+            try {
+                const tz = await timezoneFor(exitFor(c, ip, index));
+                return { ip, ok: true, tz, ms: Date.now() - started };
+            } catch (err) {
+                return { ip, ok: false, error: err.message, ms: Date.now() - started };
+            }
+        })
+    );
+}
+
+/** Print the pool's health, in the same spirit as the Airwallex boot banner. */
+async function logStartupCheck(log = console) {
+    if (!enabled()) {
+        log.log("Proxy: OFF — automated payments go out from this server's own IP");
+        return;
+    }
+
+    let results;
+    try {
+        results = await checkAll();
+    } catch (err) {
+        // Half-configured: payments will refuse to run, so say why up front.
+        log.error(`Proxy: MISCONFIGURED — ${err.message}`);
+        log.error('  ** automated payments will be refused until this is fixed **');
+        return;
+    }
+
+    const c = config();
+    const good = results.filter((r) => r.ok);
+    const head = `Proxy: ${c.host}:${c.port}  ${good.length}/${results.length} IPs reachable  rotate every ${c.rotateEvery}`;
+    (good.length === results.length ? log.log : log.error)(head);
+
+    for (const r of results) {
+        const line = r.ok
+            ? `  ok    ${r.ip.padEnd(15)}  ${r.tz}  (${r.ms}ms)`
+            : `  FAIL  ${r.ip.padEnd(15)}  ${r.error}`;
+        (r.ok ? log.log : log.error)(line);
+    }
+
+    if (!good.length) {
+        log.error('  ** no exit IP works — every automated payment will fail **');
+    } else if (good.length < results.length) {
+        // A failing IP still takes its turn in the rotation; its payments fail.
+        log.error('  ** payments routed to a failing IP will fail — check the zone in Bright Data **');
+    }
+}
+
+module.exports = { enabled, assertConfigured, next, status, timezoneFor, checkAll, logStartupCheck };

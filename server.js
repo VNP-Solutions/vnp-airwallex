@@ -19,6 +19,7 @@ const { failStaleBatches } = require('./services/paymentService');
 const { failStaleRuns } = require('./services/paymentRunner');
 const airwallex = require('./services/airwallexService');
 const { requestLogger } = require('./middleware/requestLogger');
+const proxyPool = require('./services/proxyPool');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -105,6 +106,12 @@ async function start() {
 
         app.listen(PORT, () => {
             console.log(`Server running at http://localhost:${PORT}`);
+
+            // After listening, so a slow proxy never delays the app coming up.
+            // Reports only — the payment runner refuses a broken pool itself.
+            proxyPool.logStartupCheck().catch((err) =>
+                console.error(`Proxy: check failed to run — ${err.message}`)
+            );
         });
     } catch (err) {
         console.error('Failed to start server:', err);
