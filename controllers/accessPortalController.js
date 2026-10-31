@@ -126,7 +126,9 @@ function handoffGet(req, res) {
 async function handoffPost(req, res, next) {
     const trace = portal.traceId();
     res.set('Cache-Control', 'no-store');
-    const portalUrl = process.env.ACCESS_PORTAL_URL || null;
+    // Where to send a person back to: the portal's own site, which is not the
+    // API host the code is redeemed against.
+    const portalUrl = process.env.ACCESS_PORTAL_APP_URL || process.env.ACCESS_PORTAL_URL || null;
     const reply = (status, code, error) => {
         log(trace, `POST ${status} ${code}`);
         return res.status(status).json({

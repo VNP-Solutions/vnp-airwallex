@@ -178,6 +178,13 @@ const paymentSchema = new mongoose.Schema(
          * sits behind is how a run of declines gets traced back to one bank.
          */
         card_issuer: { type: String, index: true },
+        /**
+         * The proxy IP the automated payment browser left from — one of the
+         * whitelisted pool. Lets any charge be matched to the address
+         * Airwallex recorded for it.
+         */
+        automation_ip: { type: String, index: true },
+        automation_ip_at: Date,
 
         /**
          * Outcome of the most recent attempt.

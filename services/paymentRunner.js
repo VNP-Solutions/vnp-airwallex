@@ -4,6 +4,7 @@ const batchService = require('./batchService');
 const paymentService = require('./paymentService');
 const cardVault = require('./cardVault');
 const stealth = require('./browserStealth');
+const proxyPool = require('./proxyPool');
 
 /**
  * Automated payment of a batch through a real browser.
@@ -252,9 +253,65 @@ async function waitForOutcome(page, timeoutMs) {
     return { where: 'timeout' };
 }
 
-async function payOne(browser, { baseUrl, handoff, card, timeoutMs, say = () => {} }) {
-    const page = await browser.newPage();
+/**
+ * The exit for one payment: which proxy IP, and the timezone the browser must
+ * be started in to match it. Both null when no proxy pool is configured.
+ */
+async function routeForPayment(say) {
+    if (!proxyPool.enabled()) return { exit: null, tz: null };
+    const exit = proxyPool.next();
+    const tz = await proxyPool.timezoneFor(exit);
+    say(`route — exit ${exit.ip}, timezone ${tz}`);
+    return { exit, tz };
+}
+
+/**
+ * Chrome, started in the timezone a payment needs.
+ *
+ * The timezone has to be set on the browser PROCESS: Airwallex's card fields
+ * run in cross-origin iframes that ignore a page-level override and report the
+ * server's real timezone. So a new timezone means a new browser — but payments
+ * on the same IP (consecutive, with rotation) reuse the one already running.
+ */
+function browserLauncher(headless) {
+    const puppeteer = require('puppeteer');
+    let browser = null;
+    let current;
+    return {
+        async forTimezone(tz) {
+            if (browser && current === tz) return browser;
+            if (browser) await browser.close().catch(() => {});
+            browser = await puppeteer.launch({
+                ...stealth.launchOptions({ headless }),
+                ...(tz ? { env: { ...process.env, TZ: tz } } : {}),
+            });
+            current = tz;
+            return browser;
+        },
+        async close() {
+            if (browser) await browser.close().catch(() => {});
+            browser = null;
+        },
+    };
+}
+
+async function payOne(browser, { baseUrl, handoff, card, timeoutMs, say = () => {}, onExit, exit = null }) {
+    // With a proxy pool, each payment gets its own browser context pinned to one
+    // exit IP. A context has its own network stack, so it cannot reuse another
+    // payment's proxy connection — and with it, that payment's IP.
+    const context = exit
+        ? await browser.createBrowserContext({ proxyServer: exit.server })
+        : null;
+    const page = await (context || browser).newPage();
     try {
+        if (exit) {
+            await page.authenticate(exit.credentials);
+            say(
+                `exit ip ${exit.ip} (pool ${exit.index + 1}/${exit.poolSize}, use ${exit.useCount}/${exit.rotateEvery})`
+            );
+            if (onExit) await onExit(exit.ip);
+        }
+
         // Before any navigation: the document-level patches only apply to
         // documents loaded after they are installed.
         const ua = await stealth.applyStealth(page, {
@@ -343,6 +400,7 @@ async function payOne(browser, { baseUrl, handoff, card, timeoutMs, say = () => 
         return { ok: true, seen: outcome };
     } finally {
         await page.close().catch(() => {});
+        if (context) await context.close().catch(() => {});
     }
 }
 
@@ -374,6 +432,15 @@ async function paySingle(paymentId, { headless = true, baseUrl } = {}) {
         throw err;
     }
 
+    if (proxyPool.enabled()) {
+        try {
+            proxyPool.assertConfigured();
+        } catch (err) {
+            err.statusCode = 409;
+            throw err;
+        }
+    }
+
     const { payment, card, reason } = await batchService.getPaymentWithCard(paymentId);
 
     if (!batchService.PAYABLE_STATUSES.includes(payment.status)) {
@@ -395,12 +462,12 @@ async function paySingle(paymentId, { headless = true, baseUrl } = {}) {
     const say = (message) => log(label, message);
 
     activeRuns.set(key, { cancelled: false });
-    const puppeteer = require('puppeteer');
-    let browser = null;
+    const browsers = browserLauncher(headless);
 
     try {
         say(`single payment — ${payment.amount} ${payment.currency}, headless=${headless}`);
-        browser = await puppeteer.launch(stealth.launchOptions({ headless }));
+        const route = await routeForPayment(say);
+        const browser = await browsers.forTimezone(route.tz);
 
         // A fresh client_secret, and a status re-check: a payment settled
         // elsewhere since the page loaded is refused rather than charged twice.
@@ -414,6 +481,8 @@ async function paySingle(paymentId, { headless = true, baseUrl } = {}) {
             card,
             timeoutMs: 60000,
             say,
+            exit: route.exit,
+            onExit: (ip) => recordExitIp(payment._id, ip),
         });
 
         say('confirming with Airwallex');
@@ -437,7 +506,7 @@ async function paySingle(paymentId, { headless = true, baseUrl } = {}) {
         await recordFailure(payment, err.message).catch(() => {});
         throw err;
     } finally {
-        if (browser) await browser.close().catch(() => {});
+        await browsers.close();
         activeRuns.delete(key);
     }
 }
@@ -467,6 +536,16 @@ async function runBatch(batchId, { userId, headless = true, baseUrl } = {}) {
         );
         err.statusCode = 409;
         throw err;
+    }
+
+    // A half-configured proxy pool would fail every row the same way; say so once.
+    if (proxyPool.enabled()) {
+        try {
+            proxyPool.assertConfigured();
+        } catch (err) {
+            err.statusCode = 409;
+            throw err;
+        }
     }
 
     const batch = await batchService.getBatch(batchId);
@@ -530,13 +609,12 @@ async function runBatch(batchId, { userId, headless = true, baseUrl } = {}) {
 }
 
 async function execute(batchId, items, { headless, baseUrl, controller }) {
-    const puppeteer = require('puppeteer');
     const timeoutMs = 60000;
     const startedAt = Date.now();
 
     log('', `run starting — ${items.length} to pay, headless=${headless}, base=${baseUrl}`);
 
-    const browser = await puppeteer.launch(stealth.launchOptions({ headless }));
+    const browsers = browserLauncher(headless);
 
     let processed = 0;
     let succeeded = 0;
@@ -612,12 +690,16 @@ async function execute(batchId, items, { headless, baseUrl, controller }) {
                     payment.payment_intent_id
                 );
 
+                const route = await routeForPayment(say);
+                const browser = await browsers.forTimezone(route.tz);
                 const attempt = await payOne(browser, {
                     baseUrl,
                     handoff: checkout,
                     card,
                     timeoutMs,
                     say,
+                    exit: route.exit,
+                    onExit: (ip) => recordExitIp(payment._id, ip),
                 });
 
                 // Airwallex is the authority on the outcome, not the browser —
@@ -675,7 +757,7 @@ async function execute(batchId, items, { headless, baseUrl, controller }) {
             if (!controller.cancelled) await sleep(jitter(2500, 6500));
         }
     } finally {
-        await browser.close().catch(() => {});
+        await browsers.close();
         activeRuns.delete(String(batchId));
     }
 
@@ -733,6 +815,17 @@ async function settleOutcome(intentId, { attempts = 6, waitMs = 2500 } = {}) {
             (last && last.status) || 'unknown'
         ).toLowerCase()}`,
     };
+}
+
+/**
+ * Which proxy IP an attempt left from, kept on the payment so any charge can be
+ * traced to the whitelisted address Airwallex saw.
+ */
+async function recordExitIp(paymentId, ip) {
+    await Payment.updateOne(
+        { _id: paymentId },
+        { $set: { automation_ip: ip, automation_ip_at: new Date() } }
+    ).catch(() => {});
 }
 
 /**
