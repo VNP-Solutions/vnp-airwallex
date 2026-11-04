@@ -15,6 +15,10 @@
  * A specific IP is selected with Bright Data's `-ip-x.x.x.x` username suffix,
  * which only works on zones with dedicated IPs — the reason the zone is
  * "Dedicated unlimited".
+ *
+ * BRIGHT_DATA_ENABLED is the switch. false sends every automated payment from
+ * this server's own IP, even with the pool fully configured; true requires the
+ * pool. Left unset, the pool is used if any of it is configured.
  */
 
 const DEFAULT_ROTATE_EVERY = 3;
@@ -37,10 +41,30 @@ function config() {
     };
 }
 
-/** Whether a pool is set up. None of it set means "no proxy"; half set is an error. */
+const SWITCH_OFF = new Set(['false', 'off', '0', 'no', 'disabled']);
+
+function switchValue() {
+    return String(process.env.BRIGHT_DATA_ENABLED || '').trim().toLowerCase();
+}
+
+/**
+ * Whether payments go through the pool.
+ *
+ * Only an explicit off-value turns it off. Anything else that is set counts as
+ * on, so a typo like "flase" cannot move live payments off the whitelisted IPs:
+ * it fails loudly if the pool is missing, rather than quietly going direct.
+ */
 function enabled() {
+    const flag = switchValue();
+    if (SWITCH_OFF.has(flag)) return false;
+    if (flag) return true;
     const c = config();
     return Boolean(c.host || c.port || c.username || c.password || c.ips.length);
+}
+
+/** Switched off on purpose, as opposed to simply not being configured. */
+function switchedOff() {
+    return SWITCH_OFF.has(switchValue());
 }
 
 /**
@@ -236,7 +260,9 @@ async function checkAll() {
 /** Print the pool's health, in the same spirit as the Airwallex boot banner. */
 async function logStartupCheck(log = console) {
     if (!enabled()) {
-        log.log("Proxy: OFF — automated payments go out from this server's own IP");
+        log.log(
+            `Proxy: OFF${switchedOff() ? ' (BRIGHT_DATA_ENABLED)' : ''} — automated payments go out from this server's own IP`
+        );
         return;
     }
 

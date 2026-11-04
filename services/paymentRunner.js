@@ -309,8 +309,10 @@ async function payOne(browser, { baseUrl, handoff, card, timeoutMs, say = () => 
             say(
                 `exit ip ${exit.ip} (pool ${exit.index + 1}/${exit.poolSize}, use ${exit.useCount}/${exit.rotateEvery})`
             );
-            if (onExit) await onExit(exit.ip);
+        } else {
+            say("exit ip — this server's own (proxy off)");
         }
+        if (onExit) await onExit(exit ? exit.ip : null);
 
         // Before any navigation: the document-level patches only apply to
         // documents loaded after they are installed.
@@ -822,10 +824,12 @@ async function settleOutcome(intentId, { attempts = 6, waitMs = 2500 } = {}) {
  * traced to the whitelisted address Airwallex saw.
  */
 async function recordExitIp(paymentId, ip) {
-    await Payment.updateOne(
-        { _id: paymentId },
-        { $set: { automation_ip: ip, automation_ip_at: new Date() } }
-    ).catch(() => {});
+    // No proxy on this attempt: clear any IP left by an earlier one, so the
+    // record never claims a whitelisted address this attempt did not use.
+    const update = ip
+        ? { $set: { automation_ip: ip, automation_ip_at: new Date() } }
+        : { $unset: { automation_ip: '', automation_ip_at: '' } };
+    await Payment.updateOne({ _id: paymentId }, update).catch(() => {});
 }
 
 /**
