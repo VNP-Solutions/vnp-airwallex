@@ -125,7 +125,7 @@ function decodeXml(text) {
 function textOf(fragment) {
     let out = '';
     const withoutPhonetic = fragment.replace(/<rPh[\s\S]*?<\/rPh>/g, '');
-    const re = /<t(?:\s[^>]*)?>([\s\S]*?)<\/t>|<t\s*\/>/g;
+    const re = /<t(?:\s[^>]*?)?\/>|<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g;
     let m;
     while ((m = re.exec(withoutPhonetic)) !== null) {
         out += m[1] !== undefined ? decodeXml(m[1]) : '';
@@ -208,7 +208,7 @@ function parseXlsx(buffer) {
     const xml = files.get(sheetPath).toString('utf8');
 
     const grid = [];
-    const rowRe = /<row\b([^>]*)(?:\/>|>([\s\S]*?)<\/row>)/g;
+    const rowRe = /<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g;
     let rowMatch;
 
     while ((rowMatch = rowRe.exec(xml)) !== null) {
@@ -218,7 +218,9 @@ function parseXlsx(buffer) {
         const body = rowMatch[2] || '';
         const cells = [];
 
-        const cellRe = /<c\b([^>]*)(?:\/>|>([\s\S]*?)<\/c>)/g;
+        // Lazy attributes: a greedy match takes the "/" of a self-closing blank
+        // cell as an attribute, misses the "/>", and swallows the next cell.
+        const cellRe = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g;
         let cellMatch;
         while ((cellMatch = cellRe.exec(body)) !== null) {
             const attrs = cellMatch[1] || '';
